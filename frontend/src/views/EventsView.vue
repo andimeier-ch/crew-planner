@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { eventApi, type Event } from '../api'
 import AppModal from '../components/AppModal.vue'
+import { formatDate } from '../utils/date'
 
 const items = ref<Event[]>([])
 const loading = ref(false)
@@ -56,8 +57,6 @@ async function remove(item: Event) {
   await eventApi.remove(item.id)
   items.value = items.value.filter(i => i.id !== item.id)
 }
-
-const formatDate = (d: string) => new Date(d).toLocaleDateString('de-CH')
 
 onMounted(load)
 </script>

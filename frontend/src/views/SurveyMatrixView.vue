@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { surveyApi, assignmentApi, type MatrixData, type MatrixStaff, type Event } from '../api'
+import { formatDateShort as formatDate } from '../utils/date'
 
 const route = useRoute()
 const router = useRouter()
@@ -74,7 +75,6 @@ onMounted(() => {
 })
 onUnmounted(() => document.removeEventListener('click', closePopover))
 
-const formatDate = (d: string) => new Date(d).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit' })
 </script>
 
 <template>

@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { surveyPublicApi } from '../api'
+import { formatDate } from '../utils/date'
 
 const route = useRoute()
 const token = route.params.token as string
@@ -41,7 +42,6 @@ async function submit() {
   }
 }
 
-const formatDate = (d: string) => new Date(d).toLocaleDateString('de-CH', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
 const formatDeadline = (d: string) => new Date(d).toLocaleString('de-CH')
 
 onMounted(load)
