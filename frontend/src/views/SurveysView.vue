@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { surveyApi, staffApi, eventApi, type SurveySummary, type Staff, type Event } from '../api'
 import AppModal from '../components/AppModal.vue'
+import { formatDate } from '../utils/date'
 
 const router = useRouter()
 const items = ref<SurveySummary[]>([])
@@ -56,7 +57,17 @@ async function remove(item: SurveySummary) {
   items.value = items.value.filter(i => i.id !== item.id)
 }
 
-const formatDate = (d: string) => new Date(d).toLocaleString('de-CH')
+const formatDeadline = (d: string) => new Date(d).toLocaleString('de-CH')
+
+const allStaffsSelected = computed(() => allStaffs.value.length > 0 && form.value.staffIds.length === allStaffs.value.length)
+const allEventsSelected = computed(() => allEvents.value.length > 0 && form.value.eventIds.length === allEvents.value.length)
+
+function toggleAllStaffs() {
+  form.value.staffIds = allStaffsSelected.value ? [] : allStaffs.value.map(s => s.id)
+}
+function toggleAllEvents() {
+  form.value.eventIds = allEventsSelected.value ? [] : allEvents.value.map(e => e.id)
+}
 
 onMounted(load)
 </script>
@@ -83,7 +94,7 @@ onMounted(load)
           <tr v-if="loading"><td colspan="5" class="px-4 py-6 text-center text-gray-400">Laden…</td></tr>
           <tr v-else-if="items.length === 0"><td colspan="5" class="px-4 py-6 text-center text-gray-400">Noch keine Umfragen vorhanden.</td></tr>
           <tr v-for="item in items" :key="item.id" class="hover:bg-gray-50">
-            <td class="px-4 py-3 text-gray-800 whitespace-nowrap">{{ formatDate(item.deadline) }}</td>
+            <td class="px-4 py-3 text-gray-800 whitespace-nowrap">{{ formatDeadline(item.deadline) }}</td>
             <td class="px-4 py-3 text-gray-600">{{ item.eventCount }}</td>
             <td class="px-4 py-3 text-gray-600">{{ item.participantCount }}</td>
             <td class="px-4 py-3">
@@ -110,7 +121,10 @@ onMounted(load)
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">Staffs</label>
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-sm font-medium text-gray-700">Staffs</label>
+          <button type="button" @click="toggleAllStaffs" class="text-xs text-indigo-600 hover:text-indigo-800">{{ allStaffsSelected ? 'Alle abwählen' : 'Alle auswählen' }}</button>
+        </div>
         <div class="max-h-40 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
           <label v-for="staff in allStaffs" :key="staff.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
             <input type="checkbox" :value="staff.id" v-model="form.staffIds" class="rounded" />
@@ -121,11 +135,14 @@ onMounted(load)
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">Events</label>
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-sm font-medium text-gray-700">Events</label>
+          <button type="button" @click="toggleAllEvents" class="text-xs text-indigo-600 hover:text-indigo-800">{{ allEventsSelected ? 'Alle abwählen' : 'Alle auswählen' }}</button>
+        </div>
         <div class="max-h-40 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
           <label v-for="event in allEvents" :key="event.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
             <input type="checkbox" :value="event.id" v-model="form.eventIds" class="rounded" />
-            <span class="text-gray-500 w-24 shrink-0">{{ new Date(event.date).toLocaleDateString('de-CH') }}</span>
+            <span class="text-gray-500 w-28 shrink-0">{{ formatDate(event.date) }}</span>
             <span>{{ event.title }}</span>
           </label>
         </div>
