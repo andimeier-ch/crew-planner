@@ -19,8 +19,8 @@ async function load() {
   loading.value = false
 }
 
-function cellAvailability(staff: MatrixStaff, event: Event): boolean | null {
-  return staff.availability[event.id] ?? null
+function cellAvailability(staff: MatrixStaff, event: Event): boolean {
+  return staff.availability[event.id] ?? false
 }
 
 function cellAssignments(staff: MatrixStaff, event: Event) {
@@ -57,10 +57,7 @@ async function toggleAssignment(staff: MatrixStaff, event: Event, skillId: numbe
 }
 
 function cellBg(staff: MatrixStaff, event: Event): string {
-  const avail = cellAvailability(staff, event)
-  if (avail === true) return 'bg-green-50'
-  if (avail === false) return 'bg-red-50'
-  return 'bg-white'
+  return cellAvailability(staff, event) ? 'bg-green-50' : 'bg-white'
 }
 
 function closePopover(e: MouseEvent) {
@@ -96,8 +93,7 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
       <!-- Legend -->
       <div class="flex items-center gap-4 mb-4 text-xs text-gray-500">
         <span class="flex items-center gap-1.5"><span class="w-4 h-4 rounded bg-green-50 border border-green-200 inline-block" /> Verfügbar</span>
-        <span class="flex items-center gap-1.5"><span class="w-4 h-4 rounded bg-red-50 border border-red-200 inline-block" /> Nicht verfügbar</span>
-        <span class="flex items-center gap-1.5"><span class="w-4 h-4 rounded bg-white border border-gray-200 inline-block" /> Keine Antwort</span>
+        <span class="flex items-center gap-1.5"><span class="w-4 h-4 rounded bg-white border border-gray-200 inline-block" /> Nicht verfügbar</span>
         <span class="ml-2 text-gray-400">Farbige Badges = eingeteilt</span>
       </div>
 

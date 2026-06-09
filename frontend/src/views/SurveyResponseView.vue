@@ -19,7 +19,11 @@ const error = ref('')
 async function load() {
   try {
     survey.value = await surveyPublicApi.get(token)
-    responses.value = { ...survey.value.responses }
+    const loaded: Record<number, boolean> = {}
+    for (const event of survey.value.events) {
+      loaded[event.id] = survey.value.responses[event.id] ?? false
+    }
+    responses.value = loaded
     remark.value = survey.value.remark ?? ''
   } catch {
     notFound.value = true
@@ -83,17 +87,12 @@ onMounted(load)
                   <td class="px-4 py-3 text-gray-800">{{ event.title }}</td>
                   <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ formatDate(event.date) }}</td>
                   <td class="px-4 py-3 text-center">
-                    <button
-                      type="button"
+                    <input
+                      type="checkbox"
+                      v-model="responses[event.id]"
                       :disabled="survey.isExpired"
-                      @click="responses[event.id] = !responses[event.id]"
-                      class="w-8 h-8 rounded-full border-2 transition-colors mx-auto flex items-center justify-center text-sm font-bold disabled:opacity-50"
-                      :class="responses[event.id]
-                        ? 'bg-green-500 border-green-500 text-white'
-                        : 'border-gray-300 text-gray-300 hover:border-gray-400'"
-                    >
-                      {{ responses[event.id] ? '✓' : '' }}
-                    </button>
+                      class="w-5 h-5 accent-green-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
                   </td>
                 </tr>
               </tbody>
