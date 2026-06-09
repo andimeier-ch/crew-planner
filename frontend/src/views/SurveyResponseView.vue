@@ -84,7 +84,10 @@ onMounted(load)
               </thead>
               <tbody class="divide-y divide-gray-100">
                 <tr v-for="event in survey.events" :key="event.id" class="hover:bg-gray-50">
-                  <td class="px-4 py-3 text-gray-800">{{ event.title }}</td>
+                  <td class="px-4 py-3">
+                    <div class="text-gray-800">{{ event.title }}</div>
+                    <div v-if="event.description" class="text-xs text-gray-400 mt-0.5">{{ event.description }}</div>
+                  </td>
                   <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ formatDate(event.date) }}</td>
                   <td class="px-4 py-3 text-center">
                     <input
