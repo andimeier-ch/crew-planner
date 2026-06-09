@@ -29,7 +29,7 @@ const router = createRouter({
         { path: 'events', component: EventsView },
         { path: 'surveys', component: SurveysView },
         { path: 'surveys/:id', component: SurveyDetailView },
-        { path: 'surveys/:id/matrix', component: SurveyMatrixView },
+        { path: 'surveys/:id/matrix', component: SurveyMatrixView, meta: { fullWidth: true } },
       ],
     },
   ],

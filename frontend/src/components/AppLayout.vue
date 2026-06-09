@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { RouterView, RouterLink, useRouter } from 'vue-router'
+import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+
+const route = useRoute()
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -41,7 +43,7 @@ const navLinks = [
         </button>
       </div>
     </nav>
-    <main class="max-w-screen-xl mx-auto px-4 py-8">
+    <main :class="route.meta.fullWidth ? 'px-4 py-8' : 'max-w-screen-xl mx-auto px-4 py-8'">
       <RouterView />
     </main>
   </div>
