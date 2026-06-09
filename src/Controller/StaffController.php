@@ -32,6 +32,7 @@ class StaffController extends AbstractApiController
         $body = $this->getBody($request);
         $staff = (new Staff())
             ->setName($body['name'] ?? '')
+            ->setEmail($body['email'] ?? null)
             ->setIsLeader($body['isLeader'] ?? false);
 
         foreach ($body['skillIds'] ?? [] as $skillId) {
@@ -55,6 +56,7 @@ class StaffController extends AbstractApiController
     {
         $body = $this->getBody($request);
         if (isset($body['name'])) $staff->setName($body['name']);
+        if (array_key_exists('email', $body)) $staff->setEmail($body['email'] ?: null);
         if (isset($body['isLeader'])) $staff->setIsLeader($body['isLeader']);
 
         if (array_key_exists('skillIds', $body)) {
@@ -92,6 +94,7 @@ class StaffController extends AbstractApiController
         return [
             'id' => $staff->getId(),
             'name' => $staff->getName(),
+            'email' => $staff->getEmail(),
             'isLeader' => $staff->isLeader(),
             'skills' => array_map($skillController->normalize(...), $staff->getSkills()->toArray()),
         ];

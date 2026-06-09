@@ -25,6 +25,7 @@ export interface Skill {
 export interface Staff {
   id: number
   name: string
+  email: string | null
   isLeader: boolean
   skills: Skill[]
 }

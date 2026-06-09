@@ -8,7 +8,7 @@ const allSkills = ref<Skill[]>([])
 const loading = ref(false)
 const modalOpen = ref(false)
 const editing = ref<Staff | null>(null)
-const form = ref({ name: '', isLeader: false, skillIds: [] as number[] })
+const form = ref({ name: '', email: '', isLeader: false, skillIds: [] as number[] })
 const saving = ref(false)
 const error = ref('')
 
@@ -20,14 +20,14 @@ async function load() {
 
 function openCreate() {
   editing.value = null
-  form.value = { name: '', isLeader: false, skillIds: [] }
+  form.value = { name: '', email: '', isLeader: false, skillIds: [] }
   error.value = ''
   modalOpen.value = true
 }
 
 function openEdit(item: Staff) {
   editing.value = item
-  form.value = { name: item.name, isLeader: item.isLeader, skillIds: item.skills.map(s => s.id) }
+  form.value = { name: item.name, email: item.email ?? '', isLeader: item.isLeader, skillIds: item.skills.map(s => s.id) }
   error.value = ''
   modalOpen.value = true
 }
@@ -78,18 +78,20 @@ onMounted(load)
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Name</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-600">E-Mail</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Skills</th>
             <th class="px-4 py-3"></th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          <tr v-if="loading"><td colspan="3" class="px-4 py-6 text-center text-gray-400">Laden…</td></tr>
-          <tr v-else-if="items.length === 0"><td colspan="3" class="px-4 py-6 text-center text-gray-400">Noch keine Staffs vorhanden.</td></tr>
+          <tr v-if="loading"><td colspan="4" class="px-4 py-6 text-center text-gray-400">Laden…</td></tr>
+          <tr v-else-if="items.length === 0"><td colspan="4" class="px-4 py-6 text-center text-gray-400">Noch keine Staffs vorhanden.</td></tr>
           <tr v-for="item in items" :key="item.id" class="hover:bg-gray-50">
             <td class="px-4 py-3">
               <span class="text-gray-800">{{ item.name }}</span>
               <span v-if="item.isLeader" class="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Leader</span>
             </td>
+            <td class="px-4 py-3 text-gray-500 text-sm">{{ item.email ?? '—' }}</td>
             <td class="px-4 py-3">
               <div class="flex flex-wrap gap-1">
                 <span
@@ -114,6 +116,10 @@ onMounted(load)
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
         <input v-model="form.name" type="text" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
+        <input v-model="form.email" type="email" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="optional" />
       </div>
       <div class="flex items-center gap-2">
         <input v-model="form.isLeader" type="checkbox" id="isLeader" class="rounded" />

@@ -21,6 +21,11 @@ class Staff
     #[Assert\Length(max: 150)]
     private string $name = '';
 
+    #[ORM\Column(length: 180, nullable: true)]
+    #[Assert\Email]
+    #[Assert\Length(max: 180)]
+    private ?string $email = null;
+
     #[ORM\Column]
     private bool $isLeader = false;
 
@@ -37,6 +42,9 @@ class Staff
 
     public function getName(): string { return $this->name; }
     public function setName(string $name): static { $this->name = $name; return $this; }
+
+    public function getEmail(): ?string { return $this->email; }
+    public function setEmail(?string $email): static { $this->email = $email; return $this; }
 
     public function isLeader(): bool { return $this->isLeader; }
     public function setIsLeader(bool $isLeader): static { $this->isLeader = $isLeader; return $this; }
