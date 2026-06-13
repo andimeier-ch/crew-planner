@@ -1,5 +1,8 @@
 DirectoryIndex index.html
 
+SetEnv APP_ENV prod
+SetEnv APP_DEBUG 0
+
 <IfModule mod_rewrite.c>
     Options SymLinksIfOwnerMatch
     RewriteEngine On
