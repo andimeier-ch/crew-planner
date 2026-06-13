@@ -10,28 +10,29 @@ REMOTE_DIR="/home/andimeie/public_html/crew-planner"
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo "==> Building frontend..."
-(cd frontend && npm run build)
+(cd frontend && ddev npm run build)
 
 echo "==> Syncing frontend build to server..."
-rsync -avz --delete \
-    public/index.html \
-    public/assets/ \
-    "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/public/"
+rsync -avz --no-perms --no-owner --no-group --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
+    public/index.html "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/public/"
+rsync -avz --delete --no-perms --no-owner --no-group --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
+    public/assets/ "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/public/assets/"
 
 echo "==> Pushing PHP/config changes via git..."
 ssh "${SSH_USER}@${SSH_HOST}" "cd ${REMOTE_DIR} && git pull"
 
 echo "==> Running server-side steps..."
-ssh "${SSH_USER}@${SSH_HOST}" bash << 'REMOTE'
+ssh "${SSH_USER}@${SSH_HOST}" bash -l << REMOTE
 set -e
-cd ~/crew-planner
+export APP_ENV=prod
+cd "${REMOTE_DIR}"
 
 composer install --no-dev --optimize-autoloader --no-interaction
 
-php bin/console cache:clear --env=prod --no-warmup
-php bin/console cache:warmup --env=prod
+php bin/console cache:clear --no-warmup
+php bin/console cache:warmup
 
-php bin/console doctrine:migrations:migrate --no-interaction --env=prod
+php bin/console doctrine:migrations:migrate --no-interaction
 
 chmod -R 755 var/
 REMOTE
