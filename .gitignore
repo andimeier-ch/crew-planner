@@ -21,3 +21,8 @@
 /frontend/dist/
 /frontend/.env*.local
 ###< frontend ###
+
+###> production build output ###
+/public/index.html
+/public/assets/
+###< production build output ###

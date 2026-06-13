@@ -1,0 +1,23 @@
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Pass the Authorization header through to PHP (required for JWT)
+    RewriteCond %{HTTP:Authorization} .+
+    RewriteRule ^ - [E=HTTP_AUTHORIZATION:%0]
+
+    # Redirect /index.php/... to /... (Symfony canonical URL cleanup)
+    RewriteCond %{ENV:REDIRECT_STATUS} =""
+    RewriteRule ^index\.php(?:/(.*)|$) /$1 [R=301,L]
+
+    # Route all /api/* requests to the Symfony front controller
+    RewriteRule ^api/ index.php [L]
+
+    # Serve existing static files directly (JS, CSS, images, fonts, etc.)
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # All other requests → Vue SPA (client-side routing handles the rest)
+    RewriteRule ^ index.html [L]
+</IfModule>

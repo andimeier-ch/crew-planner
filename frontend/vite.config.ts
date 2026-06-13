@@ -15,4 +15,8 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    outDir: '../public',
+    emptyOutDir: false, // never delete index.php or other Symfony files
+  },
 })
