@@ -120,7 +120,7 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
               <!-- Sticky staff info cell -->
               <td class="sticky left-0 z-10 bg-white group-hover:bg-gray-50 border-b border-r border-gray-200 px-4 py-2">
                 <div class="font-medium text-gray-800">
-                  {{ staff.name }}
+                  {{ staff.fullName }}
                   <span v-if="staff.isLeader" class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">L</span>
                 </div>
                 <div class="flex flex-wrap gap-1 mt-1">

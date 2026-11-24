@@ -151,6 +151,8 @@ The admin has to type the event name every time, even for recurring names such a
 
 ## 7. Split staff name into first and last name
 
+**Status:** ✅ Done
+
 ### Current behaviour
 
 A staff member has a single name field.

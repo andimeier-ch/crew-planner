@@ -77,7 +77,12 @@ class AssignmentController extends AbstractApiController
     {
         return [
             'id' => $a->getId(),
-            'staff' => ['id' => $a->getStaff()->getId(), 'name' => $a->getStaff()->getName()],
+            'staff' => [
+                'id' => $a->getStaff()->getId(),
+                'firstName' => $a->getStaff()->getFirstName(),
+                'lastName' => $a->getStaff()->getLastName(),
+                'fullName' => $a->getStaff()->getFullName(),
+            ],
             'event' => ['id' => $a->getEvent()->getId(), 'title' => $a->getEvent()->getTitle()],
             'skill' => ['id' => $a->getSkill()->getId(), 'name' => $a->getSkill()->getName()],
         ];
