@@ -6,7 +6,6 @@ import LoginView from '../views/LoginView.vue'
 import SkillTypesView from '../views/SkillTypesView.vue'
 import SkillsView from '../views/SkillsView.vue'
 import StaffsView from '../views/StaffsView.vue'
-import EventsView from '../views/EventsView.vue'
 import SurveysView from '../views/SurveysView.vue'
 import SurveyDetailView from '../views/SurveyDetailView.vue'
 import SurveyMatrixView from '../views/SurveyMatrixView.vue'
@@ -26,7 +25,6 @@ const router = createRouter({
         { path: 'skill-types', component: SkillTypesView },
         { path: 'skills', component: SkillsView },
         { path: 'staffs', component: StaffsView },
-        { path: 'events', component: EventsView },
         { path: 'surveys', component: SurveysView },
         { path: 'surveys/:id', component: SurveyDetailView },
         { path: 'surveys/:id/matrix', component: SurveyMatrixView, meta: { fullWidth: true } },

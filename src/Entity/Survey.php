@@ -17,12 +17,17 @@ class Survey
     #[ORM\Column]
     private ?int $id = null;
 
+    #[ORM\Column(length: 200)]
+    #[Assert\NotBlank]
+    #[Assert\Length(max: 200)]
+    private string $title = '';
+
     #[ORM\Column(type: Types::DATETIME_MUTABLE)]
     #[Assert\NotNull]
     private ?\DateTimeInterface $deadline = null;
 
-    #[ORM\ManyToMany(targetEntity: Event::class)]
-    #[ORM\JoinTable(name: 'survey_event')]
+    #[ORM\OneToMany(targetEntity: Event::class, mappedBy: 'survey', cascade: ['persist', 'remove'], orphanRemoval: true)]
+    #[ORM\OrderBy(['date' => 'ASC'])]
     private Collection $events;
 
     #[ORM\OneToMany(targetEntity: SurveyParticipant::class, mappedBy: 'survey', cascade: ['persist', 'remove'], orphanRemoval: true)]
@@ -36,6 +41,9 @@ class Survey
 
     public function getId(): ?int { return $this->id; }
 
+    public function getTitle(): string { return $this->title; }
+    public function setTitle(string $title): static { $this->title = $title; return $this; }
+
     public function getDeadline(): ?\DateTimeInterface { return $this->deadline; }
     public function setDeadline(\DateTimeInterface $deadline): static { $this->deadline = $deadline; return $this; }
 
@@ -44,6 +52,7 @@ class Survey
     {
         if (!$this->events->contains($event)) {
             $this->events->add($event);
+            $event->setSurvey($this);
         }
         return $this;
     }
