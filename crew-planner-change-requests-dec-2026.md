@@ -11,6 +11,8 @@ Terms used in this document:
 
 ## 1. Events belong to a survey
 
+**Status:** ✅ Done
+
 ### Current behaviour
 
 Events are managed independently. The admin first creates events, then creates a survey and selects existing events.
