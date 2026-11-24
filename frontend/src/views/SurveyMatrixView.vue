@@ -78,7 +78,7 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
   <div>
     <div class="flex items-center gap-3 mb-6">
       <button @click="router.back()" class="text-gray-400 hover:text-gray-600 text-sm">← Zurück</button>
-      <h1 class="text-xl font-semibold text-gray-800">Einteilungs-Matrix</h1>
+      <h1 class="text-xl font-semibold text-gray-800">Einteilungs-Matrix<template v-if="matrix">: {{ matrix.survey.title }}</template></h1>
       <span v-if="matrix" class="text-sm text-gray-500 ml-2">
         Deadline: {{ new Date(matrix.survey.deadline).toLocaleString('de-CH') }}
         <span class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full" :class="matrix.survey.isExpired ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">

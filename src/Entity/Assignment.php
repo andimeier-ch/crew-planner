@@ -19,7 +19,7 @@ class Assignment
     private ?Staff $staff = null;
 
     #[ORM\ManyToOne(targetEntity: Event::class)]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?Event $event = null;
 
     #[ORM\ManyToOne(targetEntity: Skill::class)]

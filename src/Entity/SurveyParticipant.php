@@ -17,7 +17,7 @@ class SurveyParticipant
     private ?int $id = null;
 
     #[ORM\ManyToOne(targetEntity: Survey::class, inversedBy: 'participants')]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?Survey $survey = null;
 
     #[ORM\ManyToOne(targetEntity: Staff::class)]

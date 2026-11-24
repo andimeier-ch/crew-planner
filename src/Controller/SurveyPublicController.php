@@ -29,6 +29,7 @@ class SurveyPublicController extends AbstractApiController
         }
 
         return $this->json([
+            'title' => $survey->getTitle(),
             'isExpired' => $survey->isExpired(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
             'staff' => ['id' => $participant->getStaff()->getId(), 'name' => $participant->getStaff()->getName()],

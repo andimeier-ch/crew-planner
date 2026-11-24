@@ -39,6 +39,7 @@ export interface Event {
 
 export interface SurveySummary {
   id: number
+  title: string
   deadline: string
   isExpired: boolean
   eventCount: number
@@ -54,6 +55,7 @@ export interface SurveyParticipant {
 
 export interface SurveyDetail {
   id: number
+  title: string
   deadline: string
   isExpired: boolean
   events: Event[]
@@ -97,8 +99,7 @@ export const staffApi = {
 }
 
 export const eventApi = {
-  list: () => api.get<Event[]>('/events').then(r => r.data),
-  create: (data: { title: string; date: string; description?: string }) => api.post<Event>('/events', data).then(r => r.data),
+  create: (surveyId: number, data: { title: string; date: string; description?: string | null }) => api.post<Event>(`/surveys/${surveyId}/events`, data).then(r => r.data),
   update: (id: number, data: { title?: string; date?: string; description?: string | null }) => api.put<Event>(`/events/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/events/${id}`),
 }
@@ -106,7 +107,8 @@ export const eventApi = {
 export const surveyApi = {
   list: () => api.get<SurveySummary[]>('/surveys').then(r => r.data),
   get: (id: number) => api.get<SurveyDetail>(`/surveys/${id}`).then(r => r.data),
-  create: (data: { deadline: string; staffIds: number[]; eventIds: number[] }) => api.post<SurveyDetail>('/surveys', data).then(r => r.data),
+  create: (data: { title: string; deadline: string; staffIds: number[] }) => api.post<SurveyDetail>('/surveys', data).then(r => r.data),
+  update: (id: number, data: { title: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/surveys/${id}`),
   matrix: (id: number) => api.get<MatrixData>(`/surveys/${id}/matrix`).then(r => r.data),
 }

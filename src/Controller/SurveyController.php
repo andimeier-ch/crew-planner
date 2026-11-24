@@ -6,7 +6,6 @@ use App\Entity\Assignment;
 use App\Entity\Survey;
 use App\Entity\SurveyParticipant;
 use App\Repository\AssignmentRepository;
-use App\Repository\EventRepository;
 use App\Repository\StaffRepository;
 use App\Repository\SurveyParticipantRepository;
 use App\Repository\SurveyRepository;
@@ -37,10 +36,9 @@ class SurveyController extends AbstractApiController
         EntityManagerInterface $em,
         ValidatorInterface $validator,
         StaffRepository $staffRepo,
-        EventRepository $eventRepo,
     ): JsonResponse {
         $body = $this->getBody($request);
-        $survey = new Survey();
+        $survey = (new Survey())->setTitle(trim($body['title'] ?? ''));
 
         if (!empty($body['deadline'])) {
             try {
@@ -48,11 +46,6 @@ class SurveyController extends AbstractApiController
             } catch (\Exception) {
                 return $this->json(['error' => 'Ungültige Deadline'], 422);
             }
-        }
-
-        foreach ($body['eventIds'] ?? [] as $eventId) {
-            $event = $eventRepo->find($eventId);
-            if ($event) $survey->addEvent($event);
         }
 
         foreach ($body['staffIds'] ?? [] as $staffId) {
@@ -75,6 +68,22 @@ class SurveyController extends AbstractApiController
         $em->flush();
 
         return $this->json($this->normalizeFull($survey), 201);
+    }
+
+    #[Route('/{id}', name: 'update', methods: ['PUT'])]
+    public function update(Survey $survey, Request $request, EntityManagerInterface $em, ValidatorInterface $validator): JsonResponse
+    {
+        $body = $this->getBody($request);
+        if (isset($body['title'])) $survey->setTitle(trim($body['title']));
+
+        $violations = $validator->validate($survey);
+        if (count($violations) > 0) {
+            return $this->validationErrorResponse($violations);
+        }
+
+        $em->flush();
+
+        return $this->json($this->normalizeFull($survey));
     }
 
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
@@ -139,6 +148,7 @@ class SurveyController extends AbstractApiController
     {
         return [
             'id' => $survey->getId(),
+            'title' => $survey->getTitle(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
             'isExpired' => $survey->isExpired(),
             'eventCount' => $survey->getEvents()->count(),
@@ -153,6 +163,7 @@ class SurveyController extends AbstractApiController
 
         return [
             'id' => $survey->getId(),
+            'title' => $survey->getTitle(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
             'isExpired' => $survey->isExpired(),
             'events' => array_map($eventController->normalize(...), $survey->getEvents()->toArray()),
