@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { surveyApi, staffApi, type SurveySummary, type Staff } from '../api'
 import AppModal from '../components/AppModal.vue'
+import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
 
 const router = useRouter()
 const items = ref<SurveySummary[]>([])
@@ -35,7 +36,8 @@ async function save() {
       id: created.id,
       title: created.title,
       deadline: created.deadline,
-      isExpired: created.isExpired,
+      status: created.status,
+      isDeadlinePassed: created.isDeadlinePassed,
       eventCount: created.events.length,
       participantCount: created.participants.length,
     })
@@ -96,9 +98,7 @@ onMounted(load)
             <td class="px-4 py-3 text-gray-600">{{ item.eventCount }}</td>
             <td class="px-4 py-3 text-gray-600">{{ item.participantCount }}</td>
             <td class="px-4 py-3">
-              <span class="text-xs font-medium px-2 py-0.5 rounded-full" :class="item.isExpired ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
-                {{ item.isExpired ? 'Abgelaufen' : 'Aktiv' }}
-              </span>
+              <SurveyStatusBadge :status="item.status" :is-deadline-passed="item.isDeadlinePassed" />
             </td>
             <td class="px-4 py-3 text-right space-x-2">
               <RouterLink :to="`/surveys/${item.id}`" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">Details</RouterLink>

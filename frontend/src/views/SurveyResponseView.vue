@@ -68,8 +68,11 @@ onMounted(load)
           Bitte gib an, an welchen Events du verfügbar bist. Deadline: <strong>{{ formatDeadline(survey.deadline) }}</strong>
         </p>
 
-        <div v-if="survey.isExpired" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 mb-6">
-          Die Deadline ist abgelaufen. Deine Antworten können nicht mehr geändert werden.
+        <div v-if="survey.isClosed" class="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600 mb-6">
+          Die Umfrage ist geschlossen. Deine Antworten können nicht mehr geändert werden.
+        </div>
+        <div v-else-if="survey.isDeadlinePassed" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 mb-6">
+          Die Deadline ist abgelaufen – bitte antworte so bald wie möglich.
         </div>
 
         <form @submit.prevent="submit" class="space-y-6">
@@ -93,7 +96,7 @@ onMounted(load)
                     <input
                       type="checkbox"
                       v-model="responses[event.id]"
-                      :disabled="survey.isExpired"
+                      :disabled="survey.isClosed"
                       class="w-5 h-5 accent-green-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </td>
@@ -106,14 +109,14 @@ onMounted(load)
             <label class="block text-sm font-medium text-gray-700 mb-1">Bemerkung (optional)</label>
             <textarea
               v-model="remark"
-              :disabled="survey.isExpired"
+              :disabled="survey.isClosed"
               rows="3"
               placeholder="z. B. 'Am 15.03 komme ich etwas später…'"
               class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-400"
             />
           </div>
 
-          <div v-if="!survey.isExpired" class="flex items-center gap-4">
+          <div v-if="!survey.isClosed" class="flex items-center gap-4">
             <button
               type="submit"
               :disabled="saving"
