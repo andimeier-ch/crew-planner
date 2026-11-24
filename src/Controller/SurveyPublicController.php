@@ -30,7 +30,8 @@ class SurveyPublicController extends AbstractApiController
 
         return $this->json([
             'title' => $survey->getTitle(),
-            'isExpired' => $survey->isExpired(),
+            'isClosed' => $survey->isClosed(),
+            'isDeadlinePassed' => $survey->isDeadlinePassed(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
             'staff' => ['id' => $participant->getStaff()->getId(), 'name' => $participant->getStaff()->getName()],
             'remark' => $participant->getRemark(),
@@ -47,8 +48,8 @@ class SurveyPublicController extends AbstractApiController
             return $this->notFound('Umfrage nicht gefunden');
         }
 
-        if ($participant->getSurvey()->isExpired()) {
-            return $this->json(['error' => 'Die Deadline ist abgelaufen'], 403);
+        if ($participant->getSurvey()->isClosed()) {
+            return $this->json(['error' => 'Die Umfrage ist geschlossen.'], 403);
         }
 
         $body = $this->getBody($request);

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { surveyApi, eventApi, type SurveyDetail, type Event } from '../api'
 import AppModal from '../components/AppModal.vue'
+import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
 import { formatDate as formatEventDate } from '../utils/date'
 
 const route = useRoute()
@@ -30,6 +31,27 @@ const formatDate = (d: string) => new Date(d).toLocaleString('de-CH')
 
 function errorMessage(e: any): string {
   return e.response?.data?.errors ? Object.values(e.response.data.errors).join(', ') : 'Fehler beim Speichern.'
+}
+
+// ── Survey status ────────────────────────────────────────────────────────────
+
+const statusChanging = ref(false)
+
+async function toggleClosed() {
+  if (!survey.value) return
+  const closing = survey.value.status !== 'closed'
+  if (closing) {
+    const message = `Umfrage «${survey.value.title}» schliessen?\n\n`
+      + 'Teilnehmende können ihre Antworten danach nicht mehr ändern.'
+    if (!confirm(message)) return
+  }
+  statusChanging.value = true
+  try {
+    const updated = closing ? await surveyApi.close(survey.value.id) : await surveyApi.reopen(survey.value.id)
+    survey.value.status = updated.status
+  } finally {
+    statusChanging.value = false
+  }
 }
 
 // ── Survey title ─────────────────────────────────────────────────────────────
@@ -137,9 +159,14 @@ onMounted(load)
         </div>
         <div>
           <div class="text-xs text-gray-500 mb-0.5">Status</div>
-          <span class="text-xs font-medium px-2 py-0.5 rounded-full" :class="survey.isExpired ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
-            {{ survey.isExpired ? 'Abgelaufen' : 'Aktiv' }}
-          </span>
+          <div class="flex items-center gap-2">
+            <SurveyStatusBadge :status="survey.status" :is-deadline-passed="survey.isDeadlinePassed" />
+            <button
+              @click="toggleClosed"
+              :disabled="statusChanging"
+              class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
+            >{{ survey.status === 'closed' ? 'Wieder öffnen' : 'Umfrage schliessen' }}</button>
+          </div>
         </div>
         <div>
           <div class="text-xs text-gray-500 mb-0.5">Events</div>

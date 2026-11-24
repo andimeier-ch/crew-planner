@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use App\Enum\SurveyStatus;
 use App\Repository\SurveyRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
@@ -26,6 +27,9 @@ class Survey
     #[Assert\NotNull]
     private ?\DateTimeInterface $deadline = null;
 
+    #[ORM\Column(length: 20, enumType: SurveyStatus::class)]
+    private SurveyStatus $status = SurveyStatus::Open;
+
     #[ORM\OneToMany(targetEntity: Event::class, mappedBy: 'survey', cascade: ['persist', 'remove'], orphanRemoval: true)]
     #[ORM\OrderBy(['date' => 'ASC'])]
     private Collection $events;
@@ -47,6 +51,10 @@ class Survey
     public function getDeadline(): ?\DateTimeInterface { return $this->deadline; }
     public function setDeadline(\DateTimeInterface $deadline): static { $this->deadline = $deadline; return $this; }
 
+    public function getStatus(): SurveyStatus { return $this->status; }
+    public function setStatus(SurveyStatus $status): static { $this->status = $status; return $this; }
+    public function isClosed(): bool { return $this->status === SurveyStatus::Closed; }
+
     public function getEvents(): Collection { return $this->events; }
     public function addEvent(Event $event): static
     {
@@ -64,7 +72,7 @@ class Survey
 
     public function getParticipants(): Collection { return $this->participants; }
 
-    public function isExpired(): bool
+    public function isDeadlinePassed(): bool
     {
         return $this->deadline < new \DateTime();
     }

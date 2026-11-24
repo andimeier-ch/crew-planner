@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\Assignment;
 use App\Entity\Survey;
 use App\Entity\SurveyParticipant;
+use App\Enum\SurveyStatus;
 use App\Repository\AssignmentRepository;
 use App\Repository\StaffRepository;
 use App\Repository\SurveyParticipantRepository;
@@ -86,6 +87,24 @@ class SurveyController extends AbstractApiController
         return $this->json($this->normalizeFull($survey));
     }
 
+    #[Route('/{id}/close', name: 'close', methods: ['POST'])]
+    public function close(Survey $survey, EntityManagerInterface $em): JsonResponse
+    {
+        $survey->setStatus(SurveyStatus::Closed);
+        $em->flush();
+
+        return $this->json($this->normalizeFull($survey));
+    }
+
+    #[Route('/{id}/reopen', name: 'reopen', methods: ['POST'])]
+    public function reopen(Survey $survey, EntityManagerInterface $em): JsonResponse
+    {
+        $survey->setStatus(SurveyStatus::Open);
+        $em->flush();
+
+        return $this->json($this->normalizeFull($survey));
+    }
+
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
     public function delete(Survey $survey, EntityManagerInterface $em): JsonResponse
     {
@@ -150,7 +169,8 @@ class SurveyController extends AbstractApiController
             'id' => $survey->getId(),
             'title' => $survey->getTitle(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
-            'isExpired' => $survey->isExpired(),
+            'status' => $survey->getStatus()->value,
+            'isDeadlinePassed' => $survey->isDeadlinePassed(),
             'eventCount' => $survey->getEvents()->count(),
             'participantCount' => $survey->getParticipants()->count(),
         ];
@@ -165,7 +185,8 @@ class SurveyController extends AbstractApiController
             'id' => $survey->getId(),
             'title' => $survey->getTitle(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
-            'isExpired' => $survey->isExpired(),
+            'status' => $survey->getStatus()->value,
+            'isDeadlinePassed' => $survey->isDeadlinePassed(),
             'events' => array_map($eventController->normalize(...), $survey->getEvents()->toArray()),
             'participants' => array_map(
                 fn($p) => [
