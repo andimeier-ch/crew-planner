@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { surveyApi, eventApi, type SurveyDetail, type Event } from '../api'
+import { surveyApi, eventApi, staffApi, type SurveyDetail, type SurveyParticipant, type Event, type Staff } from '../api'
 import AppModal from '../components/AppModal.vue'
 import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
 import { formatDate as formatEventDate } from '../utils/date'
@@ -30,7 +30,16 @@ async function copyLink(token: string, id: number) {
 const formatDate = (d: string) => new Date(d).toLocaleString('de-CH')
 
 function errorMessage(e: any): string {
-  return e.response?.data?.errors ? Object.values(e.response.data.errors).join(', ') : 'Fehler beim Speichern.'
+  if (e.response?.data?.errors) return Object.values(e.response.data.errors).join(', ')
+  return e.response?.data?.error ?? 'Fehler beim Speichern.'
+}
+
+/** Describes the data that gets deleted along with an event or participant; empty if there is none. */
+function dataLossText(responseCount = 0, assignmentCount = 0): string {
+  const parts: string[] = []
+  if (responseCount > 0) parts.push(`${responseCount} ${responseCount === 1 ? 'Antwort' : 'Antworten'}`)
+  if (assignmentCount > 0) parts.push(`${assignmentCount} ${assignmentCount === 1 ? 'Einteilung' : 'Einteilungen'}`)
+  return parts.join(' und ')
 }
 
 // ── Survey status ────────────────────────────────────────────────────────────
@@ -54,30 +63,41 @@ async function toggleClosed() {
   }
 }
 
-// ── Survey title ─────────────────────────────────────────────────────────────
+// ── Survey title & deadline ──────────────────────────────────────────────────
 
-const titleModalOpen = ref(false)
-const titleForm = ref('')
-const titleSaving = ref(false)
-const titleError = ref('')
+const settingsModalOpen = ref(false)
+const settingsForm = ref({ title: '', deadline: '' })
+const settingsSaving = ref(false)
+const settingsError = ref('')
 
-function openTitleEdit() {
-  titleForm.value = survey.value?.title ?? ''
-  titleError.value = ''
-  titleModalOpen.value = true
+/** Converts an ISO date string to the local `YYYY-MM-DDTHH:mm` format of a datetime-local input. */
+function toDateTimeLocal(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-async function saveTitle() {
+function openSettingsEdit() {
   if (!survey.value) return
-  titleSaving.value = true
-  titleError.value = ''
+  settingsForm.value = { title: survey.value.title, deadline: toDateTimeLocal(survey.value.deadline) }
+  settingsError.value = ''
+  settingsModalOpen.value = true
+}
+
+async function saveSettings() {
+  if (!survey.value) return
+  settingsSaving.value = true
+  settingsError.value = ''
   try {
-    survey.value.title = (await surveyApi.update(survey.value.id, { title: titleForm.value })).title
-    titleModalOpen.value = false
+    const updated = await surveyApi.update(survey.value.id, settingsForm.value)
+    survey.value.title = updated.title
+    survey.value.deadline = updated.deadline
+    survey.value.isDeadlinePassed = updated.isDeadlinePassed
+    settingsModalOpen.value = false
   } catch (e: any) {
-    titleError.value = errorMessage(e)
+    settingsError.value = errorMessage(e)
   } finally {
-    titleSaving.value = false
+    settingsSaving.value = false
   }
 }
 
@@ -116,9 +136,10 @@ async function saveEvent() {
     if (editingEvent.value) {
       const updated = await eventApi.update(editingEvent.value.id, payload)
       const idx = survey.value.events.findIndex(i => i.id === updated.id)
-      if (idx !== -1) survey.value.events[idx] = updated
+      if (idx !== -1) survey.value.events[idx] = { ...survey.value.events[idx], ...updated }
     } else {
-      survey.value.events.push(await eventApi.create(survey.value.id, payload))
+      const created = await eventApi.create(survey.value.id, payload)
+      survey.value.events.push({ ...created, responseCount: 0, assignmentCount: 0 })
     }
     sortEvents()
     eventModalOpen.value = false
@@ -131,11 +152,59 @@ async function saveEvent() {
 
 async function removeEvent(item: Event) {
   if (!survey.value) return
-  const message = `Event «${item.title}» löschen?\n\n`
-    + 'Alle Antworten und Einteilungen für dieses Event werden ebenfalls gelöscht.'
-  if (!confirm(message)) return
+  const loss = dataLossText(item.responseCount, item.assignmentCount)
+  if (loss && !confirm(`Event «${item.title}» löschen?\n\nFür dieses Event existieren ${loss}. Diese werden ebenfalls gelöscht.`)) return
   await eventApi.remove(item.id)
   survey.value.events = survey.value.events.filter(i => i.id !== item.id)
+}
+
+// ── Participants ─────────────────────────────────────────────────────────────
+
+const participantModalOpen = ref(false)
+const allStaffs = ref<Staff[]>([])
+const selectedStaffIds = ref<number[]>([])
+const participantSaving = ref(false)
+const participantError = ref('')
+
+const availableStaffs = computed(() => {
+  const taken = new Set(survey.value?.participants.map(p => p.staff.id))
+  return allStaffs.value.filter(s => !taken.has(s.id))
+})
+
+const allAvailableSelected = computed(() =>
+  availableStaffs.value.length > 0 && selectedStaffIds.value.length === availableStaffs.value.length)
+
+function toggleAllAvailable() {
+  selectedStaffIds.value = allAvailableSelected.value ? [] : availableStaffs.value.map(s => s.id)
+}
+
+async function openParticipantAdd() {
+  selectedStaffIds.value = []
+  participantError.value = ''
+  participantModalOpen.value = true
+  allStaffs.value = await staffApi.list()
+}
+
+async function saveParticipants() {
+  if (!survey.value) return
+  participantSaving.value = true
+  participantError.value = ''
+  try {
+    survey.value.participants = (await surveyApi.addParticipants(survey.value.id, selectedStaffIds.value)).participants
+    participantModalOpen.value = false
+  } catch (e: any) {
+    participantError.value = errorMessage(e)
+  } finally {
+    participantSaving.value = false
+  }
+}
+
+async function removeParticipant(p: SurveyParticipant) {
+  if (!survey.value) return
+  const loss = dataLossText(p.responseCount, p.assignmentCount)
+  if (loss && !confirm(`${p.staff.name} aus der Umfrage entfernen?\n\nFür diese Person existieren ${loss}. Diese werden ebenfalls gelöscht.`)) return
+  await surveyApi.removeParticipant(survey.value.id, p.id)
+  survey.value.participants = survey.value.participants.filter(i => i.id !== p.id)
 }
 
 onMounted(load)
@@ -146,7 +215,7 @@ onMounted(load)
     <div class="flex items-center gap-3 mb-6">
       <button @click="router.back()" class="text-gray-400 hover:text-gray-600 text-sm">← Zurück</button>
       <h1 class="text-xl font-semibold text-gray-800">{{ survey?.title ?? 'Umfrage-Details' }}</h1>
-      <button v-if="survey" @click="openTitleEdit" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">Umbenennen</button>
+      <button v-if="survey" @click="openSettingsEdit" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">Bearbeiten</button>
     </div>
 
     <div v-if="loading" class="text-gray-400 text-sm">Laden…</div>
@@ -206,7 +275,10 @@ onMounted(load)
         </table>
       </div>
 
-      <h2 class="text-sm font-semibold text-gray-700 mb-3">Teilnehmer & Links</h2>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-gray-700">Teilnehmer & Links</h2>
+        <button @click="openParticipantAdd" class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors">Teilnehmer hinzufügen</button>
+      </div>
       <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <table class="w-full text-sm">
           <thead class="bg-gray-50 border-b border-gray-200">
@@ -214,9 +286,11 @@ onMounted(load)
               <th class="text-left px-4 py-3 font-medium text-gray-600">Staff</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Umfrage-Link</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Bemerkung</th>
+              <th class="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
+            <tr v-if="survey.participants.length === 0"><td colspan="4" class="px-4 py-6 text-center text-gray-400">Noch keine Teilnehmer.</td></tr>
             <tr v-for="p in survey.participants" :key="p.id" class="hover:bg-gray-50">
               <td class="px-4 py-3 text-gray-800">
                 {{ p.staff.name }}
@@ -232,6 +306,9 @@ onMounted(load)
                 </div>
               </td>
               <td class="px-4 py-3 text-gray-500 text-xs">{{ p.remark ?? '—' }}</td>
+              <td class="px-4 py-3 text-right whitespace-nowrap">
+                <button @click="removeParticipant(p)" class="text-red-500 hover:text-red-700 text-xs font-medium">Entfernen</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -239,16 +316,44 @@ onMounted(load)
     </template>
   </div>
 
-  <AppModal v-if="titleModalOpen" title="Umfrage umbenennen" @close="titleModalOpen = false">
-    <form @submit.prevent="saveTitle" class="space-y-4">
+  <AppModal v-if="settingsModalOpen" title="Umfrage bearbeiten" @close="settingsModalOpen = false">
+    <form @submit.prevent="saveSettings" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
-        <input v-model="titleForm" type="text" required maxlength="200" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <input v-model="settingsForm.title" type="text" required maxlength="200" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
       </div>
-      <p v-if="titleError" class="text-sm text-red-600">{{ titleError }}</p>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
+        <input v-model="settingsForm.deadline" type="datetime-local" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <p v-if="settingsError" class="text-sm text-red-600">{{ settingsError }}</p>
       <div class="flex justify-end gap-3 pt-2">
-        <button type="button" @click="titleModalOpen = false" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Abbrechen</button>
-        <button type="submit" :disabled="titleSaving" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ titleSaving ? 'Speichern…' : 'Speichern' }}</button>
+        <button type="button" @click="settingsModalOpen = false" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Abbrechen</button>
+        <button type="submit" :disabled="settingsSaving" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ settingsSaving ? 'Speichern…' : 'Speichern' }}</button>
+      </div>
+    </form>
+  </AppModal>
+
+  <AppModal v-if="participantModalOpen" title="Teilnehmer hinzufügen" @close="participantModalOpen = false">
+    <form @submit.prevent="saveParticipants" class="space-y-4">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-sm font-medium text-gray-700">Staffs</label>
+          <button v-if="availableStaffs.length > 0" type="button" @click="toggleAllAvailable" class="text-xs text-indigo-600 hover:text-indigo-800">{{ allAvailableSelected ? 'Alle abwählen' : 'Alle auswählen' }}</button>
+        </div>
+        <div v-if="availableStaffs.length === 0" class="text-sm text-gray-400 border border-gray-200 rounded-md px-3 py-4 text-center">Alle Staffs sind bereits Teilnehmer.</div>
+        <div v-else class="max-h-60 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
+          <label v-for="staff in availableStaffs" :key="staff.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
+            <input type="checkbox" :value="staff.id" v-model="selectedStaffIds" class="rounded" />
+            <span>{{ staff.name }}</span>
+            <span v-if="staff.isLeader" class="text-xs text-amber-600 font-medium">Leader</span>
+          </label>
+        </div>
+      </div>
+      <p v-if="participantError" class="text-sm text-red-600">{{ participantError }}</p>
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" @click="participantModalOpen = false" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Abbrechen</button>
+        <button type="submit" :disabled="participantSaving || selectedStaffIds.length === 0" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ participantSaving ? 'Hinzufügen…' : 'Hinzufügen' }}</button>
       </div>
     </form>
   </AppModal>

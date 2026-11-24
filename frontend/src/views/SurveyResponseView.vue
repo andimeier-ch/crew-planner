@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { surveyPublicApi } from '../api'
 import { formatDate } from '../utils/date'
@@ -11,6 +11,10 @@ const survey = ref<any>(null)
 const loading = ref(true)
 const notFound = ref(false)
 const responses = ref<Record<number, boolean>>({})
+
+// Events added after the participant last answered have no saved response yet
+const hasAnswered = computed(() => Object.keys(survey.value?.responses ?? {}).length > 0)
+const isUnanswered = (eventId: number) => hasAnswered.value && !(eventId in survey.value.responses)
 const remark = ref('')
 const saving = ref(false)
 const saved = ref(false)
@@ -38,6 +42,7 @@ async function submit() {
   saved.value = false
   try {
     await surveyPublicApi.respond(token, { responses: responses.value, remark: remark.value })
+    survey.value.responses = { ...responses.value }
     saved.value = true
   } catch (e: any) {
     error.value = e.response?.data?.error ?? 'Fehler beim Speichern.'
@@ -88,7 +93,10 @@ onMounted(load)
               <tbody class="divide-y divide-gray-100">
                 <tr v-for="event in survey.events" :key="event.id" class="hover:bg-gray-50">
                   <td class="px-4 py-3">
-                    <div class="text-gray-800">{{ event.title }}</div>
+                    <div class="text-gray-800">
+                      {{ event.title }}
+                      <span v-if="isUnanswered(event.id)" class="ml-1.5 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">Neu</span>
+                    </div>
                     <div v-if="event.description" class="text-xs text-gray-400 mt-0.5">{{ event.description }}</div>
                   </td>
                   <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ formatDate(event.date) }}</td>
