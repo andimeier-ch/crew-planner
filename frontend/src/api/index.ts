@@ -35,6 +35,9 @@ export interface Event {
   title: string
   date: string
   description: string | null
+  // Only set in the survey detail payload
+  responseCount?: number
+  assignmentCount?: number
 }
 
 export type SurveyStatus = 'open' | 'closed'
@@ -53,6 +56,8 @@ export interface SurveyParticipant {
   id: number
   token: string
   remark: string | null
+  responseCount: number
+  assignmentCount: number
   staff: Staff
 }
 
@@ -112,7 +117,9 @@ export const surveyApi = {
   list: () => api.get<SurveySummary[]>('/surveys').then(r => r.data),
   get: (id: number) => api.get<SurveyDetail>(`/surveys/${id}`).then(r => r.data),
   create: (data: { title: string; deadline: string; staffIds: number[] }) => api.post<SurveyDetail>('/surveys', data).then(r => r.data),
-  update: (id: number, data: { title: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
+  update: (id: number, data: { title?: string; deadline?: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
+  addParticipants: (id: number, staffIds: number[]) => api.post<SurveyDetail>(`/surveys/${id}/participants`, { staffIds }).then(r => r.data),
+  removeParticipant: (id: number, participantId: number) => api.delete(`/surveys/${id}/participants/${participantId}`),
   close: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/close`).then(r => r.data),
   reopen: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/reopen`).then(r => r.data),
   remove: (id: number) => api.delete(`/surveys/${id}`),

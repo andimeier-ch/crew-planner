@@ -58,6 +58,8 @@ A survey therefore has the following states: **Draft → Open → Closed** (see 
 
 ## 3. Editing a survey after creation
 
+**Status:** ✅ Done
+
 ### Current behaviour
 
 After a survey has been created, it can no longer be edited: neither participants nor events nor the deadline can

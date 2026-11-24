@@ -10,6 +10,7 @@ use App\Repository\AssignmentRepository;
 use App\Repository\StaffRepository;
 use App\Repository\SurveyParticipantRepository;
 use App\Repository\SurveyRepository;
+use App\Repository\SurveyResponseRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,6 +20,12 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 #[Route('/api/surveys', name: 'api_surveys_')]
 class SurveyController extends AbstractApiController
 {
+    public function __construct(
+        private readonly AssignmentRepository $assignmentRepo,
+        private readonly SurveyResponseRepository $responseRepo,
+    ) {
+    }
+
     #[Route('', name: 'index', methods: ['GET'])]
     public function index(SurveyRepository $repo): JsonResponse
     {
@@ -49,16 +56,7 @@ class SurveyController extends AbstractApiController
             }
         }
 
-        foreach ($body['staffIds'] ?? [] as $staffId) {
-            $staff = $staffRepo->find($staffId);
-            if ($staff) {
-                $participant = (new SurveyParticipant())
-                    ->setSurvey($survey)
-                    ->setStaff($staff);
-                $survey->getParticipants()->add($participant);
-                $em->persist($participant);
-            }
-        }
+        $this->addParticipants($survey, $body['staffIds'] ?? [], $staffRepo, $em);
 
         $violations = $validator->validate($survey);
         if (count($violations) > 0) {
@@ -76,6 +74,13 @@ class SurveyController extends AbstractApiController
     {
         $body = $this->getBody($request);
         if (isset($body['title'])) $survey->setTitle(trim($body['title']));
+        if (!empty($body['deadline'])) {
+            try {
+                $survey->setDeadline(new \DateTime($body['deadline']));
+            } catch (\Exception) {
+                return $this->json(['error' => 'Ungültige Deadline'], 422);
+            }
+        }
 
         $violations = $validator->validate($survey);
         if (count($violations) > 0) {
@@ -103,6 +108,41 @@ class SurveyController extends AbstractApiController
         $em->flush();
 
         return $this->json($this->normalizeFull($survey));
+    }
+
+    #[Route('/{id}/participants', name: 'participants_add', methods: ['POST'])]
+    public function addParticipantsAction(
+        Survey $survey,
+        Request $request,
+        EntityManagerInterface $em,
+        StaffRepository $staffRepo,
+    ): JsonResponse {
+        $this->addParticipants($survey, $this->getBody($request)['staffIds'] ?? [], $staffRepo, $em);
+        $em->flush();
+
+        return $this->json($this->normalizeFull($survey));
+    }
+
+    #[Route('/{id}/participants/{participantId}', name: 'participants_remove', methods: ['DELETE'])]
+    public function removeParticipant(
+        Survey $survey,
+        int $participantId,
+        SurveyParticipantRepository $participantRepo,
+        EntityManagerInterface $em,
+    ): JsonResponse {
+        $participant = $participantRepo->find($participantId);
+        if (!$participant || $participant->getSurvey() !== $survey) {
+            return $this->notFound('Teilnehmer nicht gefunden');
+        }
+
+        // Assignments reference staff + event, not the participant, so they are not cascaded.
+        $this->assignmentRepo->deleteForStaffAndEvents($participant->getStaff(), $survey->getEvents()->toArray());
+
+        $survey->getParticipants()->removeElement($participant);
+        $em->remove($participant);
+        $em->flush();
+
+        return $this->json(null, 204);
     }
 
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
@@ -176,10 +216,43 @@ class SurveyController extends AbstractApiController
         ];
     }
 
+    /**
+     * Adds the given staff members as participants, skipping unknown IDs and staff already in the survey.
+     */
+    private function addParticipants(
+        Survey $survey,
+        array $staffIds,
+        StaffRepository $staffRepo,
+        EntityManagerInterface $em,
+    ): void {
+        $existingStaffIds = array_map(
+            fn(SurveyParticipant $p) => $p->getStaff()->getId(),
+            $survey->getParticipants()->toArray(),
+        );
+
+        foreach (array_unique(array_map('intval', $staffIds)) as $staffId) {
+            if (in_array($staffId, $existingStaffIds, true)) {
+                continue;
+            }
+            $staff = $staffRepo->find($staffId);
+            if ($staff) {
+                $participant = (new SurveyParticipant())
+                    ->setSurvey($survey)
+                    ->setStaff($staff);
+                $survey->getParticipants()->add($participant);
+                $em->persist($participant);
+            }
+        }
+    }
+
     private function normalizeFull(Survey $survey): array
     {
         $eventController = new EventController();
         $staffController = new StaffController();
+
+        $responsesByEvent = $this->responseRepo->countByEventForSurvey($survey);
+        $assignmentsByEvent = $this->assignmentRepo->countByEventForSurvey($survey);
+        $assignmentsByStaff = $this->assignmentRepo->countByStaffForSurvey($survey);
 
         return [
             'id' => $survey->getId(),
@@ -187,12 +260,20 @@ class SurveyController extends AbstractApiController
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
             'status' => $survey->getStatus()->value,
             'isDeadlinePassed' => $survey->isDeadlinePassed(),
-            'events' => array_map($eventController->normalize(...), $survey->getEvents()->toArray()),
+            'events' => array_map(
+                fn($e) => array_merge($eventController->normalize($e), [
+                    'responseCount' => $responsesByEvent[$e->getId()] ?? 0,
+                    'assignmentCount' => $assignmentsByEvent[$e->getId()] ?? 0,
+                ]),
+                $survey->getEvents()->toArray()
+            ),
             'participants' => array_map(
                 fn($p) => [
                     'id' => $p->getId(),
                     'token' => $p->getToken(),
                     'remark' => $p->getRemark(),
+                    'responseCount' => $p->getResponses()->count(),
+                    'assignmentCount' => $assignmentsByStaff[$p->getStaff()->getId()] ?? 0,
                     'staff' => $staffController->normalize($p->getStaff()),
                 ],
                 $survey->getParticipants()->toArray()
