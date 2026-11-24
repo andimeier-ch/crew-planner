@@ -131,7 +131,7 @@ onMounted(load)
         <div class="max-h-40 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
           <label v-for="staff in allStaffs" :key="staff.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
             <input type="checkbox" :value="staff.id" v-model="form.staffIds" class="rounded" />
-            <span>{{ staff.name }}</span>
+            <span>{{ staff.fullName }}</span>
             <span v-if="staff.isLeader" class="text-xs text-amber-600 font-medium">Leader</span>
           </label>
         </div>

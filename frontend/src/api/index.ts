@@ -24,7 +24,9 @@ export interface Skill {
 
 export interface Staff {
   id: number
-  name: string
+  firstName: string
+  lastName: string
+  fullName: string
   email: string | null
   isLeader: boolean
   skills: Skill[]
@@ -102,8 +104,8 @@ export const skillApi = {
 
 export const staffApi = {
   list: () => api.get<Staff[]>('/staffs').then(r => r.data),
-  create: (data: { name: string; isLeader: boolean; skillIds: number[] }) => api.post<Staff>('/staffs', data).then(r => r.data),
-  update: (id: number, data: { name?: string; isLeader?: boolean; skillIds?: number[] }) => api.put<Staff>(`/staffs/${id}`, data).then(r => r.data),
+  create: (data: { firstName: string; lastName: string; isLeader: boolean; skillIds: number[] }) => api.post<Staff>('/staffs', data).then(r => r.data),
+  update: (id: number, data: { firstName?: string; lastName?: string; isLeader?: boolean; skillIds?: number[] }) => api.put<Staff>(`/staffs/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/staffs/${id}`),
 }
 

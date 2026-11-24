@@ -23,6 +23,7 @@ class SurveyController extends AbstractApiController
     public function __construct(
         private readonly AssignmentRepository $assignmentRepo,
         private readonly SurveyResponseRepository $responseRepo,
+        private readonly SurveyParticipantRepository $participantRepo,
     ) {
     }
 
@@ -158,10 +159,9 @@ class SurveyController extends AbstractApiController
     public function matrix(
         Survey $survey,
         AssignmentRepository $assignmentRepo,
-        SurveyParticipantRepository $participantRepo,
     ): JsonResponse {
         $events = $survey->getEvents()->toArray();
-        $participants = $participantRepo->findBy(['survey' => $survey]);
+        $participants = $this->participantRepo->findBySurveyOrderedByName($survey);
         $eventIds = array_map(fn($e) => $e->getId(), $events);
 
         $assignments = $assignmentRepo->findBy(['event' => $events]);
@@ -276,7 +276,7 @@ class SurveyController extends AbstractApiController
                     'assignmentCount' => $assignmentsByStaff[$p->getStaff()->getId()] ?? 0,
                     'staff' => $staffController->normalize($p->getStaff()),
                 ],
-                $survey->getParticipants()->toArray()
+                $this->participantRepo->findBySurveyOrderedByName($survey)
             ),
         ];
     }

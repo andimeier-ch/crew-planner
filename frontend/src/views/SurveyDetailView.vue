@@ -202,7 +202,7 @@ async function saveParticipants() {
 async function removeParticipant(p: SurveyParticipant) {
   if (!survey.value) return
   const loss = dataLossText(p.responseCount, p.assignmentCount)
-  if (loss && !confirm(`${p.staff.name} aus der Umfrage entfernen?\n\nFür diese Person existieren ${loss}. Diese werden ebenfalls gelöscht.`)) return
+  if (loss && !confirm(`${p.staff.fullName} aus der Umfrage entfernen?\n\nFür diese Person existieren ${loss}. Diese werden ebenfalls gelöscht.`)) return
   await surveyApi.removeParticipant(survey.value.id, p.id)
   survey.value.participants = survey.value.participants.filter(i => i.id !== p.id)
 }
@@ -293,7 +293,7 @@ onMounted(load)
             <tr v-if="survey.participants.length === 0"><td colspan="4" class="px-4 py-6 text-center text-gray-400">Noch keine Teilnehmer.</td></tr>
             <tr v-for="p in survey.participants" :key="p.id" class="hover:bg-gray-50">
               <td class="px-4 py-3 text-gray-800">
-                {{ p.staff.name }}
+                {{ p.staff.fullName }}
                 <span v-if="p.staff.isLeader" class="ml-1.5 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Leader</span>
               </td>
               <td class="px-4 py-3">
@@ -345,7 +345,7 @@ onMounted(load)
         <div v-else class="max-h-60 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
           <label v-for="staff in availableStaffs" :key="staff.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
             <input type="checkbox" :value="staff.id" v-model="selectedStaffIds" class="rounded" />
-            <span>{{ staff.name }}</span>
+            <span>{{ staff.fullName }}</span>
             <span v-if="staff.isLeader" class="text-xs text-amber-600 font-medium">Leader</span>
           </label>
         </div>

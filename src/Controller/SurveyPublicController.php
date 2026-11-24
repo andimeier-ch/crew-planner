@@ -33,7 +33,12 @@ class SurveyPublicController extends AbstractApiController
             'isClosed' => $survey->isClosed(),
             'isDeadlinePassed' => $survey->isDeadlinePassed(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
-            'staff' => ['id' => $participant->getStaff()->getId(), 'name' => $participant->getStaff()->getName()],
+            'staff' => [
+                'id' => $participant->getStaff()->getId(),
+                'firstName' => $participant->getStaff()->getFirstName(),
+                'lastName' => $participant->getStaff()->getLastName(),
+                'fullName' => $participant->getStaff()->getFullName(),
+            ],
             'remark' => $participant->getRemark(),
             'events' => array_map($eventController->normalize(...), $survey->getEvents()->toArray()),
             'responses' => $responseMap,

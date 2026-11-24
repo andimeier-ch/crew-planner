@@ -17,7 +17,7 @@ class StaffController extends AbstractApiController
     #[Route('', name: 'index', methods: ['GET'])]
     public function index(StaffRepository $repo): JsonResponse
     {
-        return $this->json(array_map($this->normalize(...), $repo->findBy([], ['name' => 'ASC'])));
+        return $this->json(array_map($this->normalize(...), $repo->findBy([], ['lastName' => 'ASC', 'firstName' => 'ASC'])));
     }
 
     #[Route('/{id}', name: 'show', methods: ['GET'])]
@@ -31,7 +31,8 @@ class StaffController extends AbstractApiController
     {
         $body = $this->getBody($request);
         $staff = (new Staff())
-            ->setName($body['name'] ?? '')
+            ->setFirstName(trim($body['firstName'] ?? ''))
+            ->setLastName(trim($body['lastName'] ?? ''))
             ->setEmail($body['email'] ?? null)
             ->setIsLeader($body['isLeader'] ?? false);
 
@@ -55,7 +56,8 @@ class StaffController extends AbstractApiController
     public function update(Staff $staff, Request $request, EntityManagerInterface $em, ValidatorInterface $validator, SkillRepository $skillRepo): JsonResponse
     {
         $body = $this->getBody($request);
-        if (isset($body['name'])) $staff->setName($body['name']);
+        if (isset($body['firstName'])) $staff->setFirstName(trim($body['firstName']));
+        if (isset($body['lastName'])) $staff->setLastName(trim($body['lastName']));
         if (array_key_exists('email', $body)) $staff->setEmail($body['email'] ?: null);
         if (isset($body['isLeader'])) $staff->setIsLeader($body['isLeader']);
 
@@ -93,7 +95,9 @@ class StaffController extends AbstractApiController
         $skillController = new SkillController();
         return [
             'id' => $staff->getId(),
-            'name' => $staff->getName(),
+            'firstName' => $staff->getFirstName(),
+            'lastName' => $staff->getLastName(),
+            'fullName' => $staff->getFullName(),
             'email' => $staff->getEmail(),
             'isLeader' => $staff->isLeader(),
             'skills' => array_map($skillController->normalize(...), $staff->getSkills()->toArray()),
