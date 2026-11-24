@@ -35,6 +35,8 @@ them.
 
 ## 2. Surveys are closed manually
 
+**Status:** ✅ Done
+
 ### Current behaviour
 
 Each survey has a deadline. When the deadline passes, the survey locks automatically and participants can no longer
