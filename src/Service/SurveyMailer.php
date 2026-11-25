@@ -11,14 +11,14 @@ use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Mime\Email;
 
 /**
- * Sends the survey invitation to a participant, using the survey's own subject and body.
+ * Sends survey invitations and reminders to a participant, using the survey's own subject and body.
  * Sender and reply address come from MAILER_FROM (config/packages/mailer.yaml).
  */
-class InvitationMailer
+class SurveyMailer
 {
-    public const DEFAULT_SUBJECT = 'Umfrage: {surveyTitle}';
+    public const INVITATION_SUBJECT = 'Umfrage: {surveyTitle}';
 
-    public const DEFAULT_BODY = <<<'TEXT'
+    public const INVITATION_BODY = <<<'TEXT'
         Hallo {firstName}
 
         Bitte trage bis am {deadline} ein, an welchen Daten du für «{surveyTitle}» verfügbar bist:
@@ -26,6 +26,19 @@ class InvitationMailer
         {surveyLink}
 
         Der Link ist persönlich – bitte nicht weiterleiten.
+
+        Vielen Dank!
+        Musik FEG Langenthal
+        TEXT;
+
+    public const REMINDER_SUBJECT = 'Erinnerung: {surveyTitle}';
+
+    public const REMINDER_BODY = <<<'TEXT'
+        Hallo {firstName}
+
+        Von dir fehlt noch die Antwort zur Umfrage «{surveyTitle}». Bitte trage so bald wie möglich ein, an welchen Daten du verfügbar bist (Deadline: {deadline}):
+
+        {surveyLink}
 
         Vielen Dank!
         Musik FEG Langenthal
@@ -41,7 +54,27 @@ class InvitationMailer
     /**
      * @throws TransportExceptionInterface when the mail server rejects or cannot be reached
      */
-    public function send(SurveyParticipant $participant): void
+    public function sendInvitation(SurveyParticipant $participant): void
+    {
+        $survey = $participant->getSurvey();
+        $this->send($participant, $survey->getInvitationSubject(), $survey->getInvitationBody());
+    }
+
+    /**
+     * @throws TransportExceptionInterface when the mail server rejects or cannot be reached
+     */
+    public function sendReminder(SurveyParticipant $participant): void
+    {
+        $survey = $participant->getSurvey();
+        $this->send($participant, $survey->getReminderSubject(), $survey->getReminderBody());
+    }
+
+    public function surveyLink(SurveyParticipant $participant): string
+    {
+        return rtrim($this->appUrl, '/') . '/survey/' . $participant->getToken();
+    }
+
+    private function send(SurveyParticipant $participant, string $subject, string $body): void
     {
         $survey = $participant->getSurvey();
         $staff = $participant->getStaff();
@@ -56,15 +89,10 @@ class InvitationMailer
 
         $email = (new Email())
             ->to($staff->getEmail())
-            ->subject(strtr($survey->getInvitationSubject(), $placeholders))
-            ->text(strtr($survey->getInvitationBody(), $placeholders));
+            ->subject(strtr($subject, $placeholders))
+            ->text(strtr($body, $placeholders));
 
         $this->mailer->send($email);
         $participant->setLastEmailedAt(new \DateTimeImmutable());
-    }
-
-    public function surveyLink(SurveyParticipant $participant): string
-    {
-        return rtrim($this->appUrl, '/') . '/survey/' . $participant->getToken();
     }
 }

@@ -14,7 +14,7 @@ const copied = ref<number | null>(null)
 
 async function load() {
   survey.value = await surveyApi.get(Number(route.params.id))
-  resetInvitationForm()
+  resetMailTextForm()
   loading.value = false
 }
 
@@ -60,55 +60,99 @@ async function toggleClosed() {
   }
 }
 
-// ── Invitations ──────────────────────────────────────────────────────────────
+// ── E-mails (invitations & reminders) ───────────────────────────────────────
 
 const PLACEHOLDERS = ['{firstName}', '{lastName}', '{surveyTitle}', '{surveyLink}', '{deadline}']
 
-const invitationsSending = ref(false)
+const mailSending = ref(false)
 const mailErrors = ref<MailError[]>([])
 const sendError = ref('')
+const sendNotice = ref('')
 const sendingParticipantId = ref<number | null>(null)
 const sentParticipantId = ref<number | null>(null)
 
-async function sendInvitations() {
-  if (!survey.value) return
-  const withEmail = survey.value.participants.filter(p => p.staff.email).length
-  const withoutEmail = survey.value.participants.length - withEmail
-  let message = `Einladung an ${withEmail} ${withEmail === 1 ? 'Teilnehmende:n' : 'Teilnehmende'} senden?`
+/** Participants with an e-mail address who have not responded yet: the recipients of a bulk reminder. */
+const pendingReminderCount = computed(() =>
+  survey.value?.participants.filter(p => p.staff.email && p.responseCount === 0).length ?? 0)
+
+/** Builds the confirm text, mentioning participants who are skipped for lack of an e-mail address. */
+function confirmText(question: string, withoutEmail: number, footer = ''): string {
+  let message = question
   if (withoutEmail > 0) {
     message += `\n\n${withoutEmail} ${withoutEmail === 1 ? 'Person hat' : 'Personen haben'} keine E-Mail-Adresse `
-      + 'und ' + (withoutEmail === 1 ? 'erhält' : 'erhalten') + ' keine Einladung. Den Link kannst du manuell kopieren.'
+      + 'und ' + (withoutEmail === 1 ? 'erhält' : 'erhalten') + ' keine E-Mail. Den Link kannst du manuell kopieren.'
   }
-  message += '\n\nDie Umfrage wird danach geöffnet.'
-  if (!confirm(message)) return
+  return footer ? `${message}\n\n${footer}` : message
+}
 
-  // Never send an outdated text: save pending edits first
-  if (invitationDirty.value && !(await saveInvitation())) {
-    invitationOpen.value = true
+/** Runs a bulk send after confirmation; pending text edits are saved first so no outdated text goes out. */
+async function bulkSend(message: string, send: () => Promise<SurveyDetail & { mailErrors: MailError[]; sentCount?: number }>) {
+  if (!survey.value || !confirm(message)) return
+  if (mailTextDirty.value && !(await saveMailText())) {
+    mailTextOpen.value = true
     return
   }
 
-  invitationsSending.value = true
+  mailSending.value = true
   mailErrors.value = []
   sendError.value = ''
+  sendNotice.value = ''
   try {
-    const result = await surveyApi.sendInvitations(survey.value.id)
+    const result = await send()
     mailErrors.value = result.mailErrors
     survey.value.status = result.status
     survey.value.participants = result.participants
+    if (result.sentCount !== undefined) {
+      sendNotice.value = `Erinnerung an ${result.sentCount} ${result.sentCount === 1 ? 'Person' : 'Personen'} gesendet.`
+    }
   } catch (e: any) {
     sendError.value = errorMessage(e)
   } finally {
-    invitationsSending.value = false
+    mailSending.value = false
   }
 }
 
-async function sendInvitation(p: SurveyParticipant) {
+function sendInvitations() {
   if (!survey.value) return
+  const withEmail = survey.value.participants.filter(p => p.staff.email).length
+  const id = survey.value.id
+  bulkSend(
+    confirmText(
+      `Einladung an ${withEmail} ${withEmail === 1 ? 'Teilnehmende:n' : 'Teilnehmende'} senden?`,
+      survey.value.participants.length - withEmail,
+      'Die Umfrage wird danach geöffnet.',
+    ),
+    () => surveyApi.sendInvitations(id),
+  )
+}
+
+function sendReminders() {
+  if (!survey.value) return
+  const count = pendingReminderCount.value
+  const withoutEmail = survey.value.participants.filter(p => !p.staff.email && p.responseCount === 0).length
+  const id = survey.value.id
+  bulkSend(
+    confirmText(
+      `Erinnerung an ${count} ${count === 1 ? 'Person' : 'Personen'} senden, die noch nicht geantwortet ${count === 1 ? 'hat' : 'haben'}?`,
+      withoutEmail,
+    ),
+    () => surveyApi.sendReminders(id),
+  )
+}
+
+/** Sends the invitation (never e-mailed yet) or a reminder (e-mailed, no answer) to a single participant. */
+async function sendToParticipant(p: SurveyParticipant) {
+  if (!survey.value) return
+  if (mailTextDirty.value && !(await saveMailText())) {
+    mailTextOpen.value = true
+    return
+  }
   sendingParticipantId.value = p.id
   sendError.value = ''
   try {
-    const updated = await surveyApi.sendInvitation(survey.value.id, p.id)
+    const updated = p.lastEmailedAt
+      ? await surveyApi.sendReminder(survey.value.id, p.id)
+      : await surveyApi.sendInvitation(survey.value.id, p.id)
     p.lastEmailedAt = updated.lastEmailedAt
     sentParticipantId.value = p.id
     setTimeout(() => { if (sentParticipantId.value === p.id) sentParticipantId.value = null }, 2000)
@@ -119,40 +163,54 @@ async function sendInvitation(p: SurveyParticipant) {
   }
 }
 
-const invitationOpen = ref(false)
-const invitationForm = ref({ invitationSubject: '', invitationBody: '' })
-const invitationSaving = ref(false)
-const invitationSaved = ref(false)
-const invitationError = ref('')
+// ── E-mail texts ─────────────────────────────────────────────────────────────
 
-const invitationDirty = computed(() => !!survey.value && (
-  invitationForm.value.invitationSubject !== survey.value.invitationSubject
-  || invitationForm.value.invitationBody !== survey.value.invitationBody
-))
+type MailTextForm = { invitationSubject: string; invitationBody: string; reminderSubject: string; reminderBody: string }
+type MailTextTab = 'invitation' | 'reminder'
 
-function resetInvitationForm() {
-  if (!survey.value) return
-  invitationForm.value = { invitationSubject: survey.value.invitationSubject, invitationBody: survey.value.invitationBody }
+const mailTextOpen = ref(false)
+const mailTextTab = ref<MailTextTab>('invitation')
+const mailTextForm = ref<MailTextForm>({ invitationSubject: '', invitationBody: '', reminderSubject: '', reminderBody: '' })
+const mailTextSaving = ref(false)
+const mailTextSaved = ref(false)
+const mailTextError = ref('')
+
+function isTabDirty(tab: MailTextTab): boolean {
+  if (!survey.value) return false
+  const f = mailTextForm.value
+  return tab === 'invitation'
+    ? f.invitationSubject !== survey.value.invitationSubject || f.invitationBody !== survey.value.invitationBody
+    : f.reminderSubject !== survey.value.reminderSubject || f.reminderBody !== survey.value.reminderBody
 }
 
-/** Saves the invitation text; returns false if saving failed. */
-async function saveInvitation(): Promise<boolean> {
+const mailTextDirty = computed(() => isTabDirty('invitation') || isTabDirty('reminder'))
+
+function resetMailTextForm() {
+  if (!survey.value) return
+  const { invitationSubject, invitationBody, reminderSubject, reminderBody } = survey.value
+  mailTextForm.value = { invitationSubject, invitationBody, reminderSubject, reminderBody }
+}
+
+/** Saves both e-mail texts; returns false if saving failed. */
+async function saveMailText(): Promise<boolean> {
   if (!survey.value) return false
-  invitationSaving.value = true
-  invitationError.value = ''
+  mailTextSaving.value = true
+  mailTextError.value = ''
   try {
-    const updated = await surveyApi.update(survey.value.id, invitationForm.value)
+    const updated = await surveyApi.update(survey.value.id, mailTextForm.value)
     survey.value.invitationSubject = updated.invitationSubject
     survey.value.invitationBody = updated.invitationBody
-    resetInvitationForm()
-    invitationSaved.value = true
-    setTimeout(() => { invitationSaved.value = false }, 2000)
+    survey.value.reminderSubject = updated.reminderSubject
+    survey.value.reminderBody = updated.reminderBody
+    resetMailTextForm()
+    mailTextSaved.value = true
+    setTimeout(() => { mailTextSaved.value = false }, 2000)
     return true
   } catch (e: any) {
-    invitationError.value = errorMessage(e)
+    mailTextError.value = errorMessage(e)
     return false
   } finally {
-    invitationSaving.value = false
+    mailTextSaving.value = false
   }
 }
 
@@ -326,11 +384,17 @@ onMounted(load)
             <button
               v-if="survey.status === 'draft'"
               @click="sendInvitations"
-              :disabled="invitationsSending || survey.participants.length === 0"
+              :disabled="mailSending || survey.participants.length === 0"
               class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
-            >{{ invitationsSending ? 'Senden…' : 'Einladungen senden' }}</button>
+            >{{ mailSending ? 'Senden…' : 'Einladungen senden' }}</button>
             <button
-              v-else
+              v-if="survey.status === 'open'"
+              @click="sendReminders"
+              :disabled="mailSending || pendingReminderCount === 0"
+              class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >{{ mailSending ? 'Senden…' : `Erinnerung senden (${pendingReminderCount})` }}</button>
+            <button
+              v-if="survey.status !== 'draft'"
               @click="toggleClosed"
               :disabled="statusChanging"
               class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
@@ -347,42 +411,70 @@ onMounted(load)
       </div>
 
       <div v-if="mailErrors.length > 0" class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-6">
-        <div class="font-medium mb-1">Folgende Einladungen konnten nicht gesendet werden:</div>
+        <div class="font-medium mb-1">Folgende E-Mails konnten nicht gesendet werden:</div>
         <ul class="list-disc pl-5 space-y-0.5">
           <li v-for="m in mailErrors" :key="m.participantId">{{ m.name }}: {{ m.error }}</li>
         </ul>
       </div>
+      <div v-if="sendNotice" class="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 mb-6">{{ sendNotice }}</div>
       <div v-if="sendError" class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-6">{{ sendError }}</div>
 
       <div class="bg-white border border-gray-200 rounded-lg mb-6 text-sm">
         <button
           type="button"
-          @click="invitationOpen = !invitationOpen"
+          @click="mailTextOpen = !mailTextOpen"
           class="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-gray-50 rounded-lg"
-          :aria-expanded="invitationOpen"
+          :aria-expanded="mailTextOpen"
         >
-          <span class="text-gray-400 text-xs w-3">{{ invitationOpen ? '▾' : '▸' }}</span>
+          <span class="text-gray-400 text-xs w-3">{{ mailTextOpen ? '▾' : '▸' }}</span>
           <span class="font-semibold text-gray-700 shrink-0">E-Mail Text</span>
-          <span v-if="invitationDirty" class="text-xs text-amber-600 font-medium">Ungespeicherte Änderungen</span>
+          <span v-if="mailTextDirty" class="text-xs text-amber-600 font-medium">Ungespeicherte Änderungen</span>
         </button>
-        <form v-if="invitationOpen" @submit.prevent="saveInvitation" class="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Betreff</label>
-            <input v-model="invitationForm.invitationSubject" type="text" required maxlength="255" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <form v-if="mailTextOpen" @submit.prevent="saveMailText" class="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
+          <div class="flex gap-1 border-b border-gray-200" role="tablist">
+            <button
+              v-for="tab in ([['invitation', 'Einladung'], ['reminder', 'Erinnerung']] as const)"
+              :key="tab[0]"
+              type="button"
+              role="tab"
+              :aria-selected="mailTextTab === tab[0]"
+              @click="mailTextTab = tab[0]"
+              class="px-3 py-1.5 -mb-px border-b-2 text-sm font-medium"
+              :class="mailTextTab === tab[0] ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
+            >
+              {{ tab[1] }}
+              <span v-if="isTabDirty(tab[0])" class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 align-middle ml-1"></span>
+            </button>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Text</label>
-            <textarea v-model="invitationForm.invitationBody" rows="12" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          </div>
+          <template v-if="mailTextTab === 'invitation'">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Betreff</label>
+              <input v-model="mailTextForm.invitationSubject" type="text" required maxlength="255" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Text</label>
+              <textarea v-model="mailTextForm.invitationBody" rows="12" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </template>
+          <template v-else>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Betreff</label>
+              <input v-model="mailTextForm.reminderSubject" type="text" required maxlength="255" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Text</label>
+              <textarea v-model="mailTextForm.reminderBody" rows="12" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </template>
           <div class="text-xs text-gray-500">
             Platzhalter:
             <code v-for="ph in PLACEHOLDERS" :key="ph" class="ml-1 bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">{{ ph }}</code>
           </div>
-          <p v-if="invitationError" class="text-sm text-red-600">{{ invitationError }}</p>
+          <p v-if="mailTextError" class="text-sm text-red-600">{{ mailTextError }}</p>
           <div class="flex items-center justify-end gap-3">
-            <span v-if="invitationSaved" class="text-xs text-green-600 font-medium">✓ Gespeichert</span>
-            <button type="button" v-if="invitationDirty" @click="resetInvitationForm" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Verwerfen</button>
-            <button type="submit" :disabled="invitationSaving || !invitationDirty" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ invitationSaving ? 'Speichern…' : 'Speichern' }}</button>
+            <span v-if="mailTextSaved" class="text-xs text-green-600 font-medium">✓ Gespeichert</span>
+            <button type="button" v-if="mailTextDirty" @click="resetMailTextForm" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Verwerfen</button>
+            <button type="submit" :disabled="mailTextSaving || !mailTextDirty" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ mailTextSaving ? 'Speichern…' : 'Speichern' }}</button>
           </div>
         </form>
       </div>
@@ -426,13 +518,14 @@ onMounted(load)
             <tr>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Staff</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Umfrage-Link</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Antwort</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Zuletzt gemailt</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Bemerkung</th>
               <th class="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr v-if="survey.participants.length === 0"><td colspan="5" class="px-4 py-6 text-center text-gray-400">Noch keine Teilnehmer.</td></tr>
+            <tr v-if="survey.participants.length === 0"><td colspan="6" class="px-4 py-6 text-center text-gray-400">Noch keine Teilnehmer.</td></tr>
             <tr v-for="p in survey.participants" :key="p.id" class="hover:bg-gray-50">
               <td class="px-4 py-3 text-gray-800">
                 {{ p.staff.fullName }}
@@ -448,15 +541,19 @@ onMounted(load)
                   >{{ copied === p.id ? '✓ Kopiert' : 'Kopieren' }}</button>
                 </div>
               </td>
+              <td class="px-4 py-3 text-xs whitespace-nowrap">
+                <span v-if="p.responseCount > 0" class="text-green-600 font-medium">✓ Geantwortet</span>
+                <span v-else class="text-gray-400">—</span>
+              </td>
               <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{{ p.lastEmailedAt ? formatDate(p.lastEmailedAt) : '—' }}</td>
               <td class="px-4 py-3 text-gray-500 text-xs">{{ p.remark ?? '—' }}</td>
               <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
                 <button
-                  v-if="survey.status === 'open' && p.staff.email"
-                  @click="sendInvitation(p)"
-                  :disabled="sendingParticipantId === p.id"
+                  v-if="survey.status === 'open' && p.staff.email && (p.responseCount === 0 || sentParticipantId === p.id)"
+                  @click="sendToParticipant(p)"
+                  :disabled="sendingParticipantId === p.id || sentParticipantId === p.id"
                   class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
-                >{{ sentParticipantId === p.id ? '✓ Gesendet' : sendingParticipantId === p.id ? 'Senden…' : p.lastEmailedAt ? 'Erneut senden' : 'Einladung senden' }}</button>
+                >{{ sentParticipantId === p.id ? '✓ Gesendet' : sendingParticipantId === p.id ? 'Senden…' : p.lastEmailedAt ? 'Erinnern' : 'Einladung senden' }}</button>
                 <button @click="removeParticipant(p)" class="text-red-500 hover:text-red-700 text-xs font-medium">Entfernen</button>
               </td>
             </tr>

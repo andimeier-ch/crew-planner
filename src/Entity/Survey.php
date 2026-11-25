@@ -4,7 +4,7 @@ namespace App\Entity;
 
 use App\Enum\SurveyStatus;
 use App\Repository\SurveyRepository;
-use App\Service\InvitationMailer;
+use App\Service\SurveyMailer;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
@@ -34,11 +34,20 @@ class Survey
     #[ORM\Column(length: 255)]
     #[Assert\NotBlank]
     #[Assert\Length(max: 255)]
-    private string $invitationSubject = InvitationMailer::DEFAULT_SUBJECT;
+    private string $invitationSubject = SurveyMailer::INVITATION_SUBJECT;
 
     #[ORM\Column(type: Types::TEXT)]
     #[Assert\NotBlank]
-    private string $invitationBody = InvitationMailer::DEFAULT_BODY;
+    private string $invitationBody = SurveyMailer::INVITATION_BODY;
+
+    #[ORM\Column(length: 255)]
+    #[Assert\NotBlank]
+    #[Assert\Length(max: 255)]
+    private string $reminderSubject = SurveyMailer::REMINDER_SUBJECT;
+
+    #[ORM\Column(type: Types::TEXT)]
+    #[Assert\NotBlank]
+    private string $reminderBody = SurveyMailer::REMINDER_BODY;
 
     #[ORM\OneToMany(targetEntity: Event::class, mappedBy: 'survey', cascade: ['persist', 'remove'], orphanRemoval: true)]
     #[ORM\OrderBy(['date' => 'ASC'])]
@@ -72,6 +81,12 @@ class Survey
 
     public function getInvitationBody(): string { return $this->invitationBody; }
     public function setInvitationBody(string $body): static { $this->invitationBody = $body; return $this; }
+
+    public function getReminderSubject(): string { return $this->reminderSubject; }
+    public function setReminderSubject(string $subject): static { $this->reminderSubject = $subject; return $this; }
+
+    public function getReminderBody(): string { return $this->reminderBody; }
+    public function setReminderBody(string $body): static { $this->reminderBody = $body; return $this; }
 
     public function getEvents(): Collection { return $this->events; }
     public function addEvent(Event $event): static
