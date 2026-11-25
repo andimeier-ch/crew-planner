@@ -47,6 +47,25 @@ Der Vite Dev Server leitet `/api/*`-Anfragen automatisch an `https://crew-planne
 
 ---
 
+## E-Mail
+
+Einladungen werden direkt beim Klick auf «Einladungen senden» verschickt (kein Hintergrund-Worker).
+
+| Variable | Bedeutung |
+|---|---|
+| `MAILER_DSN` | SMTP-Zugang. Lokal fängt DDEV alle Mails in Mailpit ab (`ddev mailpit`). |
+| `MAILER_FROM` | Absender und Antwortadresse, Default in `.env`. |
+| `DEFAULT_URI` | Öffentliche URL der App, daraus werden die persönlichen Umfrage-Links gebaut. |
+
+Produktion (`.env.local` auf dem Server, nicht im Git):
+```
+MAILER_DSN="smtp://musik%40feg-langenthal.ch:PASSWORT@asmtp.mail.hostpoint.ch:587"
+DEFAULT_URI="https://<öffentliche URL der App>"
+```
+Das `@` im Benutzernamen und Sonderzeichen im Passwort müssen URL-kodiert sein.
+
+---
+
 ## Authentifizierung
 
 Die API verwendet **JWT Bearer Tokens** (RSA-256, gültig 1 Stunde).
@@ -134,6 +153,8 @@ Alle `/api/*`-Routen (ausser Login und Survey) erfordern `Authorization: Bearer 
 | GET | `/api/surveys/{id}` | Umfrage mit Teilnehmern und Tokens |
 | DELETE | `/api/surveys/{id}` | Umfrage löschen |
 | GET | `/api/surveys/{id}/matrix` | Matrix-Daten (Staffs, Events, Verfügbarkeiten, Einteilungen) |
+| POST | `/api/surveys/{id}/send-invitations` | Einladungen an alle senden und Entwurf öffnen |
+| POST | `/api/surveys/{id}/participants/{participantId}/send-invitation` | Einladung an eine Person (erneut) senden |
 
 **Umfrage erstellen – Request Body:**
 ```json
