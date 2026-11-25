@@ -173,3 +173,98 @@ A staff member has a single name field.
 
 Existing names are split at the first space: the part before it becomes the first name, the rest becomes the last
 name. The admin then checks and corrects the result.
+
+---
+
+## 8. Assignment e-mails
+
+**Status:** ⏳ Open
+
+**Depends on:** item 4.
+
+### Current behaviour
+
+The admin assigns staff members to events in the survey's matrix. Assignments are not communicated by the app: the
+admin has to inform the crew manually.
+
+A staff member can have the **leader** flag, but there is no way to say who leads a specific event. An event can
+have none, one or several leader-flagged people assigned.
+
+### Requested behaviour
+
+#### Leader per event
+
+- In the matrix, the admin can mark one assigned person per event as the **leader** of that event.
+- Each event has at most one leader. Marking another person moves the leader role to them.
+- Only assigned staff members with the leader flag can be marked as leader. For everyone else, the option is not
+  available.
+- If the leader flag is removed from a staff member, they stay assigned to their events but are no longer the leader
+  of any of them.
+- If the leader's assignment is removed, the event no longer has a leader.
+
+#### Sending the assignments
+
+- When the assignments are complete, the admin clicks **"Send assignments"**. Every participant with at least one
+  assignment receives an e-mail. Participants without any assignment receive nothing.
+- Assignments can only be sent while the survey is **Closed**.
+- Each survey has its own assignment text (subject and body), pre-filled from a default template and editable by the
+  admin. It supports the same placeholders as the invitation (see item 4), plus:
+
+  | Placeholder | Content                                                        |
+  |-------------|----------------------------------------------------------------|
+  | `{plan}`    | The participant's personal summary and the full plan (see below) |
+
+- The participant list shows when each person last received the assignment e-mail. The admin can (re)send it to a
+  single participant, e.g. after changing that person's assignments.
+- If assignments change after sending, the app does not detect this. The admin sends the e-mail again, either to
+  everyone or to the affected participants.
+- Participants without an e-mail address are skipped and flagged. The admin informs them personally.
+
+#### Content of the plan
+
+The plan is sent as an HTML e-mail with a plain-text alternative. One block per event fits phone screens better
+than a wide table.
+
+1. **Personal summary** – the events the recipient is assigned to, sorted by date.
+2. **Full plan** – all events of the survey, sorted by date. For each event:
+   - weekday, date and title (e.g. "So 06.12.2026 · Gottesdienst"),
+   - the event description, if one exists,
+   - the leader, marked as "Leitung" and listed first,
+   - the other assigned staff members, sorted by last name,
+   - "Keine Einteilung" if nobody is assigned.
+3. The recipient's own name is **highlighted** wherever it appears in the full plan.
+
+Assigned skills are not shown.
+
+Example (simplified, recipient Anna Muster):
+
+```
+Hallo Anna
+
+Du bist an folgenden Daten eingeteilt:
+  ▶ So 06.12.2026  Gottesdienst
+  ▶ So 20.12.2026  Gottesdienst
+
+── Gesamter Plan ──────────────────────
+
+So 06.12.2026 · Gottesdienst
+  Probe ab 08:30
+  ★ Leitung: Peter Keller
+    Marco Brunner
+    Lisa Frei
+    ┃ Anna Muster                ◀ du
+
+So 13.12.2026 · Gottesdienst
+  ★ Leitung: Sara Huber
+    Marco Brunner
+
+So 20.12.2026 · Gottesdienst
+  ★ Leitung: Peter Keller
+    ┃ Anna Muster                ◀ du
+```
+
+### Out of scope
+
+- Showing the plan on the participant's personal survey page.
+- Calendar files (.ics) for the participant's own assignments.
+- Automatic notification when assignments change.
