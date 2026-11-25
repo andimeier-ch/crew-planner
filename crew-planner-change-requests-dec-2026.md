@@ -1,4 +1,4 @@
-# Change requests for the Crew Planner app – December 2026
+# Change requests for the Crew Planner app – MS 2, December 2026
 
 Terms used in this document:
 
@@ -262,9 +262,3 @@ So 20.12.2026 · Gottesdienst
   ★ Leitung: Peter Keller
     ┃ Anna Muster
 ```
-
-### Out of scope
-
-- Showing the plan on the participant's personal survey page.
-- Calendar files (.ics) for the participant's own assignments.
-- Automatic notification when assignments change.
