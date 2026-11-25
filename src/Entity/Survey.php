@@ -4,6 +4,7 @@ namespace App\Entity;
 
 use App\Enum\SurveyStatus;
 use App\Repository\SurveyRepository;
+use App\Service\InvitationMailer;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
@@ -28,7 +29,16 @@ class Survey
     private ?\DateTimeInterface $deadline = null;
 
     #[ORM\Column(length: 20, enumType: SurveyStatus::class)]
-    private SurveyStatus $status = SurveyStatus::Open;
+    private SurveyStatus $status = SurveyStatus::Draft;
+
+    #[ORM\Column(length: 255)]
+    #[Assert\NotBlank]
+    #[Assert\Length(max: 255)]
+    private string $invitationSubject = InvitationMailer::DEFAULT_SUBJECT;
+
+    #[ORM\Column(type: Types::TEXT)]
+    #[Assert\NotBlank]
+    private string $invitationBody = InvitationMailer::DEFAULT_BODY;
 
     #[ORM\OneToMany(targetEntity: Event::class, mappedBy: 'survey', cascade: ['persist', 'remove'], orphanRemoval: true)]
     #[ORM\OrderBy(['date' => 'ASC'])]
@@ -53,7 +63,15 @@ class Survey
 
     public function getStatus(): SurveyStatus { return $this->status; }
     public function setStatus(SurveyStatus $status): static { $this->status = $status; return $this; }
+    public function isDraft(): bool { return $this->status === SurveyStatus::Draft; }
+    public function isOpen(): bool { return $this->status === SurveyStatus::Open; }
     public function isClosed(): bool { return $this->status === SurveyStatus::Closed; }
+
+    public function getInvitationSubject(): string { return $this->invitationSubject; }
+    public function setInvitationSubject(string $subject): static { $this->invitationSubject = $subject; return $this; }
+
+    public function getInvitationBody(): string { return $this->invitationBody; }
+    public function setInvitationBody(string $body): static { $this->invitationBody = $body; return $this; }
 
     public function getEvents(): Collection { return $this->events; }
     public function addEvent(Event $event): static

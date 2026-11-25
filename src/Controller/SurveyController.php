@@ -11,9 +11,11 @@ use App\Repository\StaffRepository;
 use App\Repository\SurveyParticipantRepository;
 use App\Repository\SurveyRepository;
 use App\Repository\SurveyResponseRepository;
+use App\Service\InvitationMailer;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
@@ -24,6 +26,7 @@ class SurveyController extends AbstractApiController
         private readonly AssignmentRepository $assignmentRepo,
         private readonly SurveyResponseRepository $responseRepo,
         private readonly SurveyParticipantRepository $participantRepo,
+        private readonly InvitationMailer $invitationMailer,
     ) {
     }
 
@@ -75,6 +78,8 @@ class SurveyController extends AbstractApiController
     {
         $body = $this->getBody($request);
         if (isset($body['title'])) $survey->setTitle(trim($body['title']));
+        if (isset($body['invitationSubject'])) $survey->setInvitationSubject(trim($body['invitationSubject']));
+        if (isset($body['invitationBody'])) $survey->setInvitationBody(trim($body['invitationBody']));
         if (!empty($body['deadline'])) {
             try {
                 $survey->setDeadline(new \DateTime($body['deadline']));
@@ -96,6 +101,9 @@ class SurveyController extends AbstractApiController
     #[Route('/{id}/close', name: 'close', methods: ['POST'])]
     public function close(Survey $survey, EntityManagerInterface $em): JsonResponse
     {
+        if (!$survey->isOpen()) {
+            return $this->json(['error' => 'Nur offene Umfragen können geschlossen werden.'], 409);
+        }
         $survey->setStatus(SurveyStatus::Closed);
         $em->flush();
 
@@ -105,10 +113,74 @@ class SurveyController extends AbstractApiController
     #[Route('/{id}/reopen', name: 'reopen', methods: ['POST'])]
     public function reopen(Survey $survey, EntityManagerInterface $em): JsonResponse
     {
+        if (!$survey->isClosed()) {
+            return $this->json(['error' => 'Nur geschlossene Umfragen können wieder geöffnet werden.'], 409);
+        }
         $survey->setStatus(SurveyStatus::Open);
         $em->flush();
 
         return $this->json($this->normalizeFull($survey));
+    }
+
+    /**
+     * Sends the invitation to every participant with an e-mail address and opens the survey.
+     * The survey stays a draft only if every single send failed.
+     */
+    #[Route('/{id}/send-invitations', name: 'send_invitations', methods: ['POST'])]
+    public function sendInvitations(Survey $survey, EntityManagerInterface $em): JsonResponse
+    {
+        if (!$survey->isDraft()) {
+            return $this->json(['error' => 'Einladungen können nur für Entwürfe gesendet werden.'], 409);
+        }
+
+        $sent = 0;
+        $mailErrors = [];
+        foreach ($this->participantRepo->findBySurveyOrderedByName($survey) as $participant) {
+            if (!$participant->getStaff()->getEmail()) {
+                continue;
+            }
+            try {
+                $this->invitationMailer->send($participant);
+                $sent++;
+            } catch (TransportExceptionInterface $e) {
+                $mailErrors[] = [
+                    'participantId' => $participant->getId(),
+                    'name' => $participant->getStaff()->getFullName(),
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        if ($sent > 0 || $mailErrors === []) {
+            $survey->setStatus(SurveyStatus::Open);
+        }
+        $em->flush();
+
+        return $this->json(array_merge($this->normalizeFull($survey), ['mailErrors' => $mailErrors]));
+    }
+
+    #[Route('/{id}/participants/{participantId}/send-invitation', name: 'participants_send_invitation', methods: ['POST'])]
+    public function sendInvitation(Survey $survey, int $participantId, EntityManagerInterface $em): JsonResponse
+    {
+        $participant = $this->participantRepo->find($participantId);
+        if (!$participant || $participant->getSurvey() !== $survey) {
+            return $this->notFound('Teilnehmer nicht gefunden');
+        }
+        if (!$survey->isOpen()) {
+            return $this->json(['error' => 'Einladungen können nur für offene Umfragen gesendet werden.'], 409);
+        }
+        if (!$participant->getStaff()->getEmail()) {
+            return $this->json(['error' => 'Für diese Person ist keine E-Mail-Adresse erfasst.'], 422);
+        }
+
+        try {
+            $this->invitationMailer->send($participant);
+        } catch (TransportExceptionInterface $e) {
+            return $this->json(['error' => 'E-Mail konnte nicht gesendet werden: ' . $e->getMessage()], 502);
+        }
+        $em->flush();
+
+        return $this->json($this->normalizeParticipant($participant));
     }
 
     #[Route('/{id}/participants', name: 'participants_add', methods: ['POST'])]
@@ -248,7 +320,6 @@ class SurveyController extends AbstractApiController
     private function normalizeFull(Survey $survey): array
     {
         $eventController = new EventController();
-        $staffController = new StaffController();
 
         $responsesByEvent = $this->responseRepo->countByEventForSurvey($survey);
         $assignmentsByEvent = $this->assignmentRepo->countByEventForSurvey($survey);
@@ -260,6 +331,8 @@ class SurveyController extends AbstractApiController
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
             'status' => $survey->getStatus()->value,
             'isDeadlinePassed' => $survey->isDeadlinePassed(),
+            'invitationSubject' => $survey->getInvitationSubject(),
+            'invitationBody' => $survey->getInvitationBody(),
             'events' => array_map(
                 fn($e) => array_merge($eventController->normalize($e), [
                     'responseCount' => $responsesByEvent[$e->getId()] ?? 0,
@@ -268,16 +341,27 @@ class SurveyController extends AbstractApiController
                 $survey->getEvents()->toArray()
             ),
             'participants' => array_map(
-                fn($p) => [
-                    'id' => $p->getId(),
-                    'token' => $p->getToken(),
-                    'remark' => $p->getRemark(),
-                    'responseCount' => $p->getResponses()->count(),
-                    'assignmentCount' => $assignmentsByStaff[$p->getStaff()->getId()] ?? 0,
-                    'staff' => $staffController->normalize($p->getStaff()),
-                ],
+                fn($p) => $this->normalizeParticipant($p, $assignmentsByStaff[$p->getStaff()->getId()] ?? 0),
                 $this->participantRepo->findBySurveyOrderedByName($survey)
             ),
+        ];
+    }
+
+    private function normalizeParticipant(SurveyParticipant $p, ?int $assignmentCount = null): array
+    {
+        if ($assignmentCount === null) {
+            $assignmentCount = $this->assignmentRepo->countByStaffForSurvey($p->getSurvey())[$p->getStaff()->getId()] ?? 0;
+        }
+
+        return [
+            'id' => $p->getId(),
+            'token' => $p->getToken(),
+            'surveyLink' => $this->invitationMailer->surveyLink($p),
+            'remark' => $p->getRemark(),
+            'responseCount' => $p->getResponses()->count(),
+            'assignmentCount' => $assignmentCount,
+            'lastEmailedAt' => $p->getLastEmailedAt()?->format(\DateTimeInterface::ATOM),
+            'staff' => (new StaffController())->normalize($p->getStaff()),
         ];
     }
 }

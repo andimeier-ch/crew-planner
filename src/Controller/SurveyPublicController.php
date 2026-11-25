@@ -21,6 +21,9 @@ class SurveyPublicController extends AbstractApiController
         }
 
         $survey = $participant->getSurvey();
+        if ($survey->isDraft()) {
+            return $this->json(['error' => 'Diese Umfrage ist noch nicht geöffnet.'], 403);
+        }
         $eventController = new EventController();
 
         $responseMap = [];
@@ -53,6 +56,9 @@ class SurveyPublicController extends AbstractApiController
             return $this->notFound('Umfrage nicht gefunden');
         }
 
+        if ($participant->getSurvey()->isDraft()) {
+            return $this->json(['error' => 'Diese Umfrage ist noch nicht geöffnet.'], 403);
+        }
         if ($participant->getSurvey()->isClosed()) {
             return $this->json(['error' => 'Die Umfrage ist geschlossen.'], 403);
         }

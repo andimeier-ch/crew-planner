@@ -9,7 +9,7 @@ const token = route.params.token as string
 
 const survey = ref<any>(null)
 const loading = ref(true)
-const notFound = ref(false)
+const loadError = ref('')
 const responses = ref<Record<number, boolean>>({})
 
 // Events added after the participant last answered have no saved response yet
@@ -29,8 +29,10 @@ async function load() {
     }
     responses.value = loaded
     remark.value = survey.value.remark ?? ''
-  } catch {
-    notFound.value = true
+  } catch (e: any) {
+    loadError.value = e.response?.status === 403
+      ? e.response.data.error
+      : 'Umfrage nicht gefunden oder Link ungültig.'
   } finally {
     loading.value = false
   }
@@ -63,8 +65,8 @@ onMounted(load)
 
       <div v-if="loading" class="text-gray-400 mt-8">Laden…</div>
 
-      <div v-else-if="notFound" class="mt-8 text-gray-500">
-        Umfrage nicht gefunden oder Link ungültig.
+      <div v-else-if="loadError" class="mt-8 text-gray-500">
+        {{ loadError }}
       </div>
 
       <template v-else-if="survey">

@@ -42,7 +42,7 @@ export interface Event {
   assignmentCount?: number
 }
 
-export type SurveyStatus = 'open' | 'closed'
+export type SurveyStatus = 'draft' | 'open' | 'closed'
 
 export interface SurveySummary {
   id: number
@@ -60,6 +60,9 @@ export interface SurveyParticipant {
   remark: string | null
   responseCount: number
   assignmentCount: number
+  lastEmailedAt: string | null
+  // Same link as in the e-mails, built by the server from DEFAULT_URI
+  surveyLink: string
   staff: Staff
 }
 
@@ -69,8 +72,16 @@ export interface SurveyDetail {
   deadline: string
   status: SurveyStatus
   isDeadlinePassed: boolean
+  invitationSubject: string
+  invitationBody: string
   events: Event[]
   participants: SurveyParticipant[]
+}
+
+export interface MailError {
+  participantId: number
+  name: string
+  error: string
 }
 
 export interface MatrixStaff extends Staff {
@@ -119,9 +130,11 @@ export const surveyApi = {
   list: () => api.get<SurveySummary[]>('/surveys').then(r => r.data),
   get: (id: number) => api.get<SurveyDetail>(`/surveys/${id}`).then(r => r.data),
   create: (data: { title: string; deadline: string; staffIds: number[] }) => api.post<SurveyDetail>('/surveys', data).then(r => r.data),
-  update: (id: number, data: { title?: string; deadline?: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
+  update: (id: number, data: { title?: string; deadline?: string; invitationSubject?: string; invitationBody?: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
   addParticipants: (id: number, staffIds: number[]) => api.post<SurveyDetail>(`/surveys/${id}/participants`, { staffIds }).then(r => r.data),
   removeParticipant: (id: number, participantId: number) => api.delete(`/surveys/${id}/participants/${participantId}`),
+  sendInvitations: (id: number) => api.post<SurveyDetail & { mailErrors: MailError[] }>(`/surveys/${id}/send-invitations`).then(r => r.data),
+  sendInvitation: (id: number, participantId: number) => api.post<SurveyParticipant>(`/surveys/${id}/participants/${participantId}/send-invitation`).then(r => r.data),
   close: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/close`).then(r => r.data),
   reopen: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/reopen`).then(r => r.data),
   remove: (id: number) => api.delete(`/surveys/${id}`),

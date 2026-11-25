@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { surveyApi, eventApi, staffApi, type SurveyDetail, type SurveyParticipant, type Event, type Staff } from '../api'
+import { surveyApi, eventApi, staffApi, type SurveyDetail, type SurveyParticipant, type Event, type Staff, type MailError } from '../api'
 import AppModal from '../components/AppModal.vue'
 import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
 import { formatDate as formatEventDate } from '../utils/date'
@@ -14,17 +14,14 @@ const copied = ref<number | null>(null)
 
 async function load() {
   survey.value = await surveyApi.get(Number(route.params.id))
+  resetInvitationForm()
   loading.value = false
 }
 
-function surveyLink(token: string) {
-  return `${window.location.origin}/survey/${token}`
-}
-
-async function copyLink(token: string, id: number) {
-  await navigator.clipboard.writeText(surveyLink(token))
-  copied.value = id
-  setTimeout(() => { if (copied.value === id) copied.value = null }, 2000)
+async function copyLink(p: SurveyParticipant) {
+  await navigator.clipboard.writeText(p.surveyLink)
+  copied.value = p.id
+  setTimeout(() => { if (copied.value === p.id) copied.value = null }, 2000)
 }
 
 const formatDate = (d: string) => new Date(d).toLocaleString('de-CH')
@@ -60,6 +57,102 @@ async function toggleClosed() {
     survey.value.status = updated.status
   } finally {
     statusChanging.value = false
+  }
+}
+
+// ── Invitations ──────────────────────────────────────────────────────────────
+
+const PLACEHOLDERS = ['{firstName}', '{lastName}', '{surveyTitle}', '{surveyLink}', '{deadline}']
+
+const invitationsSending = ref(false)
+const mailErrors = ref<MailError[]>([])
+const sendError = ref('')
+const sendingParticipantId = ref<number | null>(null)
+const sentParticipantId = ref<number | null>(null)
+
+async function sendInvitations() {
+  if (!survey.value) return
+  const withEmail = survey.value.participants.filter(p => p.staff.email).length
+  const withoutEmail = survey.value.participants.length - withEmail
+  let message = `Einladung an ${withEmail} ${withEmail === 1 ? 'Teilnehmende:n' : 'Teilnehmende'} senden?`
+  if (withoutEmail > 0) {
+    message += `\n\n${withoutEmail} ${withoutEmail === 1 ? 'Person hat' : 'Personen haben'} keine E-Mail-Adresse `
+      + 'und ' + (withoutEmail === 1 ? 'erhält' : 'erhalten') + ' keine Einladung. Den Link kannst du manuell kopieren.'
+  }
+  message += '\n\nDie Umfrage wird danach geöffnet.'
+  if (!confirm(message)) return
+
+  // Never send an outdated text: save pending edits first
+  if (invitationDirty.value && !(await saveInvitation())) {
+    invitationOpen.value = true
+    return
+  }
+
+  invitationsSending.value = true
+  mailErrors.value = []
+  sendError.value = ''
+  try {
+    const result = await surveyApi.sendInvitations(survey.value.id)
+    mailErrors.value = result.mailErrors
+    survey.value.status = result.status
+    survey.value.participants = result.participants
+  } catch (e: any) {
+    sendError.value = errorMessage(e)
+  } finally {
+    invitationsSending.value = false
+  }
+}
+
+async function sendInvitation(p: SurveyParticipant) {
+  if (!survey.value) return
+  sendingParticipantId.value = p.id
+  sendError.value = ''
+  try {
+    const updated = await surveyApi.sendInvitation(survey.value.id, p.id)
+    p.lastEmailedAt = updated.lastEmailedAt
+    sentParticipantId.value = p.id
+    setTimeout(() => { if (sentParticipantId.value === p.id) sentParticipantId.value = null }, 2000)
+  } catch (e: any) {
+    sendError.value = `${p.staff.fullName}: ${errorMessage(e)}`
+  } finally {
+    sendingParticipantId.value = null
+  }
+}
+
+const invitationOpen = ref(false)
+const invitationForm = ref({ invitationSubject: '', invitationBody: '' })
+const invitationSaving = ref(false)
+const invitationSaved = ref(false)
+const invitationError = ref('')
+
+const invitationDirty = computed(() => !!survey.value && (
+  invitationForm.value.invitationSubject !== survey.value.invitationSubject
+  || invitationForm.value.invitationBody !== survey.value.invitationBody
+))
+
+function resetInvitationForm() {
+  if (!survey.value) return
+  invitationForm.value = { invitationSubject: survey.value.invitationSubject, invitationBody: survey.value.invitationBody }
+}
+
+/** Saves the invitation text; returns false if saving failed. */
+async function saveInvitation(): Promise<boolean> {
+  if (!survey.value) return false
+  invitationSaving.value = true
+  invitationError.value = ''
+  try {
+    const updated = await surveyApi.update(survey.value.id, invitationForm.value)
+    survey.value.invitationSubject = updated.invitationSubject
+    survey.value.invitationBody = updated.invitationBody
+    resetInvitationForm()
+    invitationSaved.value = true
+    setTimeout(() => { invitationSaved.value = false }, 2000)
+    return true
+  } catch (e: any) {
+    invitationError.value = errorMessage(e)
+    return false
+  } finally {
+    invitationSaving.value = false
   }
 }
 
@@ -231,6 +324,13 @@ onMounted(load)
           <div class="flex items-center gap-2">
             <SurveyStatusBadge :status="survey.status" :is-deadline-passed="survey.isDeadlinePassed" />
             <button
+              v-if="survey.status === 'draft'"
+              @click="sendInvitations"
+              :disabled="invitationsSending || survey.participants.length === 0"
+              class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >{{ invitationsSending ? 'Senden…' : 'Einladungen senden' }}</button>
+            <button
+              v-else
               @click="toggleClosed"
               :disabled="statusChanging"
               class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
@@ -244,6 +344,47 @@ onMounted(load)
         <RouterLink :to="`/surveys/${survey.id}/matrix`" class="ml-auto bg-indigo-600 text-white text-sm px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors">
           Matrix öffnen
         </RouterLink>
+      </div>
+
+      <div v-if="mailErrors.length > 0" class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-6">
+        <div class="font-medium mb-1">Folgende Einladungen konnten nicht gesendet werden:</div>
+        <ul class="list-disc pl-5 space-y-0.5">
+          <li v-for="m in mailErrors" :key="m.participantId">{{ m.name }}: {{ m.error }}</li>
+        </ul>
+      </div>
+      <div v-if="sendError" class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-6">{{ sendError }}</div>
+
+      <div class="bg-white border border-gray-200 rounded-lg mb-6 text-sm">
+        <button
+          type="button"
+          @click="invitationOpen = !invitationOpen"
+          class="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-gray-50 rounded-lg"
+          :aria-expanded="invitationOpen"
+        >
+          <span class="text-gray-400 text-xs w-3">{{ invitationOpen ? '▾' : '▸' }}</span>
+          <span class="font-semibold text-gray-700 shrink-0">E-Mail Text</span>
+          <span v-if="invitationDirty" class="text-xs text-amber-600 font-medium">Ungespeicherte Änderungen</span>
+        </button>
+        <form v-if="invitationOpen" @submit.prevent="saveInvitation" class="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Betreff</label>
+            <input v-model="invitationForm.invitationSubject" type="text" required maxlength="255" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Text</label>
+            <textarea v-model="invitationForm.invitationBody" rows="12" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div class="text-xs text-gray-500">
+            Platzhalter:
+            <code v-for="ph in PLACEHOLDERS" :key="ph" class="ml-1 bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">{{ ph }}</code>
+          </div>
+          <p v-if="invitationError" class="text-sm text-red-600">{{ invitationError }}</p>
+          <div class="flex items-center justify-end gap-3">
+            <span v-if="invitationSaved" class="text-xs text-green-600 font-medium">✓ Gespeichert</span>
+            <button type="button" v-if="invitationDirty" @click="resetInvitationForm" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Verwerfen</button>
+            <button type="submit" :disabled="invitationSaving || !invitationDirty" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ invitationSaving ? 'Speichern…' : 'Speichern' }}</button>
+          </div>
+        </form>
       </div>
 
       <div class="flex items-center justify-between mb-3">
@@ -285,28 +426,37 @@ onMounted(load)
             <tr>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Staff</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Umfrage-Link</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Zuletzt gemailt</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Bemerkung</th>
               <th class="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr v-if="survey.participants.length === 0"><td colspan="4" class="px-4 py-6 text-center text-gray-400">Noch keine Teilnehmer.</td></tr>
+            <tr v-if="survey.participants.length === 0"><td colspan="5" class="px-4 py-6 text-center text-gray-400">Noch keine Teilnehmer.</td></tr>
             <tr v-for="p in survey.participants" :key="p.id" class="hover:bg-gray-50">
               <td class="px-4 py-3 text-gray-800">
                 {{ p.staff.fullName }}
                 <span v-if="p.staff.isLeader" class="ml-1.5 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Leader</span>
+                <span v-if="!p.staff.email" class="ml-1.5 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Keine E-Mail</span>
               </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
-                  <code class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded truncate max-w-xs">{{ surveyLink(p.token) }}</code>
+                  <code class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded truncate max-w-xs">{{ p.surveyLink }}</code>
                   <button
-                    @click="copyLink(p.token, p.id)"
+                    @click="copyLink(p)"
                     class="text-xs text-indigo-600 hover:text-indigo-800 font-medium shrink-0"
                   >{{ copied === p.id ? '✓ Kopiert' : 'Kopieren' }}</button>
                 </div>
               </td>
+              <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{{ p.lastEmailedAt ? formatDate(p.lastEmailedAt) : '—' }}</td>
               <td class="px-4 py-3 text-gray-500 text-xs">{{ p.remark ?? '—' }}</td>
-              <td class="px-4 py-3 text-right whitespace-nowrap">
+              <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+                <button
+                  v-if="survey.status === 'open' && p.staff.email"
+                  @click="sendInvitation(p)"
+                  :disabled="sendingParticipantId === p.id"
+                  class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
+                >{{ sentParticipantId === p.id ? '✓ Gesendet' : sendingParticipantId === p.id ? 'Senden…' : p.lastEmailedAt ? 'Erneut senden' : 'Einladung senden' }}</button>
                 <button @click="removeParticipant(p)" class="text-red-500 hover:text-red-700 text-xs font-medium">Entfernen</button>
               </td>
             </tr>
