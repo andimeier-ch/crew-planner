@@ -82,6 +82,8 @@ be changed.
 
 ## 4. Invitation e-mails sent from the app
 
+**Status:** ✅ Done
+
 **Depends on:** item 7 (split staff name).
 
 ### Current behaviour
@@ -115,6 +117,8 @@ The production server needs a working e-mail setup (SMTP access and sender addre
 ---
 
 ## 5. Reminder e-mails
+
+**Status:** ✅ Done
 
 **Depends on:** item 4.
 

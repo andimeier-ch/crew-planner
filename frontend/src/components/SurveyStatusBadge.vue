@@ -5,6 +5,7 @@ import type { SurveyStatus } from '../api'
 const props = defineProps<{ status: SurveyStatus; isDeadlinePassed: boolean }>()
 
 const badge = computed(() => {
+  if (props.status === 'draft') return { label: 'Entwurf', classes: 'bg-indigo-100 text-indigo-700' }
   if (props.status === 'closed') return { label: 'Geschlossen', classes: 'bg-gray-100 text-gray-500' }
   if (props.isDeadlinePassed) return { label: 'Offen · Deadline vorbei', classes: 'bg-amber-100 text-amber-700' }
   return { label: 'Offen', classes: 'bg-green-100 text-green-700' }
