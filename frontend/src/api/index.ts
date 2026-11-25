@@ -16,6 +16,11 @@ export interface SkillType {
   color: string
 }
 
+export interface EventName {
+  id: number
+  name: string
+}
+
 export interface Skill {
   id: number
   name: string
@@ -106,6 +111,13 @@ export const skillTypeApi = {
   create: (data: Partial<SkillType>) => api.post<SkillType>('/skill-types', data).then(r => r.data),
   update: (id: number, data: Partial<SkillType>) => api.put<SkillType>(`/skill-types/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/skill-types/${id}`),
+}
+
+export const eventNameApi = {
+  list: () => api.get<EventName[]>('/event-names').then(r => r.data),
+  create: (data: { name: string }) => api.post<EventName>('/event-names', data).then(r => r.data),
+  update: (id: number, data: { name: string }) => api.put<EventName>(`/event-names/${id}`, data).then(r => r.data),
+  remove: (id: number) => api.delete(`/event-names/${id}`),
 }
 
 export const skillApi = {

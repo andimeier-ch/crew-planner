@@ -118,6 +118,16 @@ Alle `/api/*`-Routen (ausser Login und Survey) erfordern `Authorization: Bearer 
 | PUT | `/api/skill-types/{id}` | Skill-Typ aktualisieren |
 | DELETE | `/api/skill-types/{id}` | Skill-Typ löschen |
 
+### Event-Namen
+Vordefinierte Event-Titel, die beim Erfassen eines Events als Vorschläge erscheinen.
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| GET | `/api/event-names` | Alle Event-Namen (alphabetisch) |
+| POST | `/api/event-names` | Neuen Event-Namen erstellen |
+| PUT | `/api/event-names/{id}` | Event-Namen aktualisieren |
+| DELETE | `/api/event-names/{id}` | Event-Namen löschen |
+
 ### Skills
 | Methode | Pfad | Beschreibung |
 |---|---|---|
