@@ -39,6 +39,25 @@ class AssignmentRepository extends ServiceEntityRepository
     }
 
     /**
+     * All assignments within the survey's events, with their staff loaded, ordered by staff name.
+     *
+     * @return Assignment[]
+     */
+    public function findForSurveyOrderedByName(Survey $survey): array
+    {
+        return $this->createQueryBuilder('a')
+            ->addSelect('s')
+            ->join('a.staff', 's')
+            ->join('a.event', 'e')
+            ->where('e.survey = :survey')
+            ->setParameter('survey', $survey)
+            ->orderBy('s.lastName', 'ASC')
+            ->addOrderBy('s.firstName', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * @return array<int, int> event ID => number of assignments
      */
     public function countByEventForSurvey(Survey $survey): array

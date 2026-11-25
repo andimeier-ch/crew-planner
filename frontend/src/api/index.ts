@@ -42,6 +42,7 @@ export interface Event {
   title: string
   date: string
   description: string | null
+  leaderId: number | null
   // Only set in the survey detail payload
   responseCount?: number
   assignmentCount?: number
@@ -66,6 +67,7 @@ export interface SurveyParticipant {
   responseCount: number
   assignmentCount: number
   lastEmailedAt: string | null
+  lastAssignmentSentAt: string | null
   // Same link as in the e-mails, built by the server from DEFAULT_URI
   surveyLink: string
   staff: Staff
@@ -81,6 +83,8 @@ export interface SurveyDetail {
   invitationBody: string
   reminderSubject: string
   reminderBody: string
+  assignmentSubject: string
+  assignmentBody: string
   events: Event[]
   participants: SurveyParticipant[]
 }
@@ -138,19 +142,22 @@ export const eventApi = {
   create: (surveyId: number, data: { title: string; date: string; description?: string | null }) => api.post<Event>(`/surveys/${surveyId}/events`, data).then(r => r.data),
   update: (id: number, data: { title?: string; date?: string; description?: string | null }) => api.put<Event>(`/events/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/events/${id}`),
+  setLeader: (id: number, staffId: number | null) => api.put<Event>(`/events/${id}/leader`, { staffId }).then(r => r.data),
 }
 
 export const surveyApi = {
   list: () => api.get<SurveySummary[]>('/surveys').then(r => r.data),
   get: (id: number) => api.get<SurveyDetail>(`/surveys/${id}`).then(r => r.data),
   create: (data: { title: string; deadline: string; staffIds: number[] }) => api.post<SurveyDetail>('/surveys', data).then(r => r.data),
-  update: (id: number, data: { title?: string; deadline?: string; invitationSubject?: string; invitationBody?: string; reminderSubject?: string; reminderBody?: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
+  update: (id: number, data: { title?: string; deadline?: string; invitationSubject?: string; invitationBody?: string; reminderSubject?: string; reminderBody?: string; assignmentSubject?: string; assignmentBody?: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
   addParticipants: (id: number, staffIds: number[]) => api.post<SurveyDetail>(`/surveys/${id}/participants`, { staffIds }).then(r => r.data),
   removeParticipant: (id: number, participantId: number) => api.delete(`/surveys/${id}/participants/${participantId}`),
   sendInvitations: (id: number) => api.post<SurveyDetail & { mailErrors: MailError[] }>(`/surveys/${id}/send-invitations`).then(r => r.data),
   sendInvitation: (id: number, participantId: number) => api.post<SurveyParticipant>(`/surveys/${id}/participants/${participantId}/send-invitation`).then(r => r.data),
   sendReminders: (id: number) => api.post<SurveyDetail & { sentCount: number; mailErrors: MailError[] }>(`/surveys/${id}/send-reminders`).then(r => r.data),
   sendReminder: (id: number, participantId: number) => api.post<SurveyParticipant>(`/surveys/${id}/participants/${participantId}/send-reminder`).then(r => r.data),
+  sendAssignments: (id: number) => api.post<SurveyDetail & { sentCount: number; mailErrors: MailError[] }>(`/surveys/${id}/send-assignments`).then(r => r.data),
+  sendAssignment: (id: number, participantId: number) => api.post<SurveyParticipant>(`/surveys/${id}/participants/${participantId}/send-assignment`).then(r => r.data),
   close: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/close`).then(r => r.data),
   reopen: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/reopen`).then(r => r.data),
   remove: (id: number) => api.delete(`/surveys/${id}`),

@@ -32,6 +32,10 @@ class Event
     #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?Survey $survey = null;
 
+    #[ORM\ManyToOne(targetEntity: Staff::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Staff $leader = null;
+
     public function getId(): ?int { return $this->id; }
 
     public function getTitle(): string { return $this->title; }
@@ -45,4 +49,7 @@ class Event
 
     public function getSurvey(): ?Survey { return $this->survey; }
     public function setSurvey(?Survey $survey): static { $this->survey = $survey; return $this; }
+
+    public function getLeader(): ?Staff { return $this->leader; }
+    public function setLeader(?Staff $leader): static { $this->leader = $leader; return $this; }
 }

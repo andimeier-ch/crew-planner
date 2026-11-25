@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Entity\Staff;
+use App\Repository\EventRepository;
 use App\Repository\SkillRepository;
 use App\Repository\StaffRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -53,13 +54,28 @@ class StaffController extends AbstractApiController
     }
 
     #[Route('/{id}', name: 'update', methods: ['PUT'])]
-    public function update(Staff $staff, Request $request, EntityManagerInterface $em, ValidatorInterface $validator, SkillRepository $skillRepo): JsonResponse
+    public function update(
+        Staff $staff,
+        Request $request,
+        EntityManagerInterface $em,
+        ValidatorInterface $validator,
+        SkillRepository $skillRepo,
+        EventRepository $eventRepo,
+    ): JsonResponse
     {
         $body = $this->getBody($request);
         if (isset($body['firstName'])) $staff->setFirstName(trim($body['firstName']));
         if (isset($body['lastName'])) $staff->setLastName(trim($body['lastName']));
         if (array_key_exists('email', $body)) $staff->setEmail($body['email'] ?: null);
-        if (isset($body['isLeader'])) $staff->setIsLeader($body['isLeader']);
+        if (isset($body['isLeader'])) {
+            $staff->setIsLeader($body['isLeader']);
+            // Without the leader flag, the staff member can no longer lead any event.
+            if (!$staff->isLeader()) {
+                foreach ($eventRepo->findBy(['leader' => $staff]) as $event) {
+                    $event->setLeader(null);
+                }
+            }
+        }
 
         if (array_key_exists('skillIds', $body)) {
             foreach ($staff->getSkills()->toArray() as $skill) {

@@ -154,6 +154,7 @@ Vordefinierte Event-Titel, die beim Erfassen eines Events als Vorschläge ersche
 | GET | `/api/events/{id}` | Einzelnes Event |
 | PUT | `/api/events/{id}` | Event aktualisieren |
 | DELETE | `/api/events/{id}` | Event löschen |
+| PUT | `/api/events/{id}/leader` | Leitung setzen (`{"staffId": 1}`) oder entfernen (`{"staffId": null}`); nur eingeteilte Staffs mit Leader-Flag |
 
 ### Umfragen
 | Methode | Pfad | Beschreibung |
@@ -167,6 +168,8 @@ Vordefinierte Event-Titel, die beim Erfassen eines Events als Vorschläge ersche
 | POST | `/api/surveys/{id}/participants/{participantId}/send-invitation` | Einladung an eine Person senden |
 | POST | `/api/surveys/{id}/send-reminders` | Erinnerung an alle ohne Antwort senden |
 | POST | `/api/surveys/{id}/participants/{participantId}/send-reminder` | Erinnerung an eine Person senden |
+| POST | `/api/surveys/{id}/send-assignments` | Einteilung an alle Eingeteilten senden (nur geschlossene Umfragen) |
+| POST | `/api/surveys/{id}/participants/{participantId}/send-assignment` | Einteilung an eine Person senden |
 
 **Umfrage erstellen – Request Body:**
 ```json

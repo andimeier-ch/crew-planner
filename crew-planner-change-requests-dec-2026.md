@@ -178,7 +178,7 @@ name. The admin then checks and corrects the result.
 
 ## 8. Assignment e-mails
 
-**Status:** ⏳ Open
+**Status:** ✅ Done
 
 **Depends on:** item 4.
 
@@ -252,7 +252,7 @@ So 06.12.2026 · Gottesdienst
   ★ Leitung: Peter Keller
     Marco Brunner
     Lisa Frei
-    ┃ Anna Muster                ◀ du
+    ┃ Anna Muster
 
 So 13.12.2026 · Gottesdienst
   ★ Leitung: Sara Huber
@@ -260,7 +260,7 @@ So 13.12.2026 · Gottesdienst
 
 So 20.12.2026 · Gottesdienst
   ★ Leitung: Peter Keller
-    ┃ Anna Muster                ◀ du
+    ┃ Anna Muster
 ```
 
 ### Out of scope
