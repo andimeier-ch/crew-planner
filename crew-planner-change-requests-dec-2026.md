@@ -118,6 +118,8 @@ The production server needs a working e-mail setup (SMTP access and sender addre
 
 ## 5. Reminder e-mails
 
+**Status:** ✅ Done
+
 **Depends on:** item 4.
 
 ### Current behaviour
