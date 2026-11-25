@@ -11,6 +11,7 @@ use App\Repository\StaffRepository;
 use App\Repository\SurveyParticipantRepository;
 use App\Repository\SurveyRepository;
 use App\Repository\SurveyResponseRepository;
+use App\Service\AssignmentPlan;
 use App\Service\SurveyMailer;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -27,6 +28,7 @@ class SurveyController extends AbstractApiController
         private readonly SurveyResponseRepository $responseRepo,
         private readonly SurveyParticipantRepository $participantRepo,
         private readonly SurveyMailer $surveyMailer,
+        private readonly AssignmentPlan $assignmentPlan,
     ) {
     }
 
@@ -82,6 +84,8 @@ class SurveyController extends AbstractApiController
         if (isset($body['invitationBody'])) $survey->setInvitationBody(trim($body['invitationBody']));
         if (isset($body['reminderSubject'])) $survey->setReminderSubject(trim($body['reminderSubject']));
         if (isset($body['reminderBody'])) $survey->setReminderBody(trim($body['reminderBody']));
+        if (isset($body['assignmentSubject'])) $survey->setAssignmentSubject(trim($body['assignmentSubject']));
+        if (isset($body['assignmentBody'])) $survey->setAssignmentBody(trim($body['assignmentBody']));
         if (!empty($body['deadline'])) {
             try {
                 $survey->setDeadline(new \DateTime($body['deadline']));
@@ -171,16 +175,61 @@ class SurveyController extends AbstractApiController
         ]));
     }
 
+    /**
+     * Sends the assignment plan to every participant with an e-mail address and at least one assignment.
+     */
+    #[Route('/{id}/send-assignments', name: 'send_assignments', methods: ['POST'])]
+    public function sendAssignments(Survey $survey, EntityManagerInterface $em): JsonResponse
+    {
+        if (!$survey->isClosed()) {
+            return $this->json(['error' => 'Die Einteilung kann nur für geschlossene Umfragen gesendet werden.'], 409);
+        }
+
+        $plan = $this->assignmentPlan->build($survey);
+        $assigned = array_filter(
+            $this->participantRepo->findBySurveyOrderedByName($survey),
+            fn(SurveyParticipant $p) => $this->assignmentPlan->isAssigned($plan, $p->getStaff()),
+        );
+        [$sent, $mailErrors] = $this->sendEach(
+            $assigned,
+            fn(SurveyParticipant $p) => $this->surveyMailer->sendAssignment($p, $plan),
+        );
+        $em->flush();
+
+        return $this->json(array_merge($this->normalizeFull($survey), [
+            'sentCount' => $sent,
+            'mailErrors' => $mailErrors,
+        ]));
+    }
+
     #[Route('/{id}/participants/{participantId}/send-invitation', name: 'participants_send_invitation', methods: ['POST'])]
     public function sendInvitation(Survey $survey, int $participantId, EntityManagerInterface $em): JsonResponse
     {
-        return $this->sendOne($survey, $participantId, $this->surveyMailer->sendInvitation(...), $em);
+        return $this->sendOne($survey, $participantId, SurveyStatus::Open, $this->surveyMailer->sendInvitation(...), $em);
     }
 
     #[Route('/{id}/participants/{participantId}/send-reminder', name: 'participants_send_reminder', methods: ['POST'])]
     public function sendReminder(Survey $survey, int $participantId, EntityManagerInterface $em): JsonResponse
     {
-        return $this->sendOne($survey, $participantId, $this->surveyMailer->sendReminder(...), $em);
+        return $this->sendOne($survey, $participantId, SurveyStatus::Open, $this->surveyMailer->sendReminder(...), $em);
+    }
+
+    #[Route('/{id}/participants/{participantId}/send-assignment', name: 'participants_send_assignment', methods: ['POST'])]
+    public function sendAssignment(Survey $survey, int $participantId, EntityManagerInterface $em): JsonResponse
+    {
+        $plan = $this->assignmentPlan->build($survey);
+        $participant = $this->participantRepo->find($participantId);
+        if ($participant && !$this->assignmentPlan->isAssigned($plan, $participant->getStaff())) {
+            return $this->json(['error' => 'Diese Person ist für kein Event eingeteilt.'], 422);
+        }
+
+        return $this->sendOne(
+            $survey,
+            $participantId,
+            SurveyStatus::Closed,
+            fn(SurveyParticipant $p) => $this->surveyMailer->sendAssignment($p, $plan),
+            $em,
+        );
     }
 
     #[Route('/{id}/participants', name: 'participants_add', methods: ['POST'])]
@@ -354,18 +403,25 @@ class SurveyController extends AbstractApiController
     }
 
     /**
-     * Sends a mail to a single participant of an open survey.
+     * Sends a mail to a single participant; the survey must be in the given status.
      *
      * @param callable(SurveyParticipant): void $send
      */
-    private function sendOne(Survey $survey, int $participantId, callable $send, EntityManagerInterface $em): JsonResponse
-    {
+    private function sendOne(
+        Survey $survey,
+        int $participantId,
+        SurveyStatus $requiredStatus,
+        callable $send,
+        EntityManagerInterface $em,
+    ): JsonResponse {
         $participant = $this->participantRepo->find($participantId);
         if (!$participant || $participant->getSurvey() !== $survey) {
             return $this->notFound('Teilnehmer nicht gefunden');
         }
-        if (!$survey->isOpen()) {
-            return $this->json(['error' => 'E-Mails können nur für offene Umfragen gesendet werden.'], 409);
+        if ($survey->getStatus() !== $requiredStatus) {
+            $state = $requiredStatus === SurveyStatus::Closed ? 'geschlossene' : 'offene';
+
+            return $this->json(['error' => "Diese E-Mail kann nur für $state Umfragen gesendet werden."], 409);
         }
         if (!$participant->getStaff()->getEmail()) {
             return $this->json(['error' => 'Für diese Person ist keine E-Mail-Adresse erfasst.'], 422);
@@ -399,6 +455,8 @@ class SurveyController extends AbstractApiController
             'invitationBody' => $survey->getInvitationBody(),
             'reminderSubject' => $survey->getReminderSubject(),
             'reminderBody' => $survey->getReminderBody(),
+            'assignmentSubject' => $survey->getAssignmentSubject(),
+            'assignmentBody' => $survey->getAssignmentBody(),
             'events' => array_map(
                 fn($e) => array_merge($eventController->normalize($e), [
                     'responseCount' => $responsesByEvent[$e->getId()] ?? 0,
@@ -427,6 +485,7 @@ class SurveyController extends AbstractApiController
             'responseCount' => $p->getResponses()->count(),
             'assignmentCount' => $assignmentCount,
             'lastEmailedAt' => $p->getLastEmailedAt()?->format(\DateTimeInterface::ATOM),
+            'lastAssignmentSentAt' => $p->getLastAssignmentSentAt()?->format(\DateTimeInterface::ATOM),
             'staff' => (new StaffController())->normalize($p->getStaff()),
         ];
     }

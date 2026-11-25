@@ -49,6 +49,15 @@ class Survey
     #[Assert\NotBlank]
     private string $reminderBody = SurveyMailer::REMINDER_BODY;
 
+    #[ORM\Column(length: 255)]
+    #[Assert\NotBlank]
+    #[Assert\Length(max: 255)]
+    private string $assignmentSubject = SurveyMailer::ASSIGNMENT_SUBJECT;
+
+    #[ORM\Column(type: Types::TEXT)]
+    #[Assert\NotBlank]
+    private string $assignmentBody = SurveyMailer::ASSIGNMENT_BODY;
+
     #[ORM\OneToMany(targetEntity: Event::class, mappedBy: 'survey', cascade: ['persist', 'remove'], orphanRemoval: true)]
     #[ORM\OrderBy(['date' => 'ASC'])]
     private Collection $events;
@@ -87,6 +96,12 @@ class Survey
 
     public function getReminderBody(): string { return $this->reminderBody; }
     public function setReminderBody(string $body): static { $this->reminderBody = $body; return $this; }
+
+    public function getAssignmentSubject(): string { return $this->assignmentSubject; }
+    public function setAssignmentSubject(string $subject): static { $this->assignmentSubject = $subject; return $this; }
+
+    public function getAssignmentBody(): string { return $this->assignmentBody; }
+    public function setAssignmentBody(string $body): static { $this->assignmentBody = $body; return $this; }
 
     public function getEvents(): Collection { return $this->events; }
     public function addEvent(Event $event): static
