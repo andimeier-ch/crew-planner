@@ -82,6 +82,8 @@ be changed.
 
 ## 4. Invitation e-mails sent from the app
 
+**Status:** ✅ Done
+
 **Depends on:** item 7 (split staff name).
 
 ### Current behaviour
