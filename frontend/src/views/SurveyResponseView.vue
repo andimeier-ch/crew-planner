@@ -70,7 +70,7 @@ onMounted(load)
       </div>
 
       <template v-else-if="survey">
-        <p class="text-sm text-gray-500 mb-1">Hallo <strong>{{ survey.staff.fullName }}</strong></p>
+        <p class="text-sm text-gray-500 mb-1">Hallo <strong>{{ survey.staff.firstName }}</strong></p>
         <p class="text-sm text-gray-500 mb-6">
           Bitte gib an, an welchen Events du verfügbar bist. Deadline: <strong>{{ formatDeadline(survey.deadline) }}</strong>
         </p>
