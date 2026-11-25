@@ -4,6 +4,8 @@ namespace App\Controller;
 
 use App\Entity\Event;
 use App\Entity\Survey;
+use App\Repository\AssignmentRepository;
+use App\Repository\StaffRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -48,6 +50,39 @@ class EventController extends AbstractApiController
         return $this->json($this->normalize($event));
     }
 
+    /**
+     * Sets or clears the event's leader. Only an assigned staff member with the leader flag can lead an event.
+     */
+    #[Route('/events/{id}/leader', name: 'leader', methods: ['PUT'])]
+    public function setLeader(
+        Event $event,
+        Request $request,
+        EntityManagerInterface $em,
+        StaffRepository $staffRepo,
+        AssignmentRepository $assignmentRepo,
+    ): JsonResponse {
+        $staffId = $this->getBody($request)['staffId'] ?? null;
+        $leader = null;
+
+        if ($staffId !== null) {
+            $leader = $staffRepo->find((int) $staffId);
+            if (!$leader) {
+                return $this->notFound('Staff nicht gefunden');
+            }
+            if (!$leader->isLeader()) {
+                return $this->json(['error' => 'Nur Staffs mit Leader-Flag können die Leitung übernehmen.'], 422);
+            }
+            if (!$assignmentRepo->findOneBy(['staff' => $leader, 'event' => $event])) {
+                return $this->json(['error' => 'Die Leitung muss für dieses Event eingeteilt sein.'], 422);
+            }
+        }
+
+        $event->setLeader($leader);
+        $em->flush();
+
+        return $this->json($this->normalize($event));
+    }
+
     #[Route('/events/{id}', name: 'delete', methods: ['DELETE'])]
     public function delete(Event $event, EntityManagerInterface $em): JsonResponse
     {
@@ -64,6 +99,7 @@ class EventController extends AbstractApiController
             'title' => $event->getTitle(),
             'date' => $event->getDate()?->format('Y-m-d'),
             'description' => $event->getDescription(),
+            'leaderId' => $event->getLeader()?->getId(),
         ];
     }
 

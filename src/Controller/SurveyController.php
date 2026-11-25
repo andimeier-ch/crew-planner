@@ -209,7 +209,13 @@ class SurveyController extends AbstractApiController
         }
 
         // Assignments reference staff + event, not the participant, so they are not cascaded.
-        $this->assignmentRepo->deleteForStaffAndEvents($participant->getStaff(), $survey->getEvents()->toArray());
+        $staff = $participant->getStaff();
+        $this->assignmentRepo->deleteForStaffAndEvents($staff, $survey->getEvents()->toArray());
+        foreach ($survey->getEvents() as $event) {
+            if ($event->getLeader() === $staff) {
+                $event->setLeader(null);
+            }
+        }
 
         $survey->getParticipants()->removeElement($participant);
         $em->remove($participant);

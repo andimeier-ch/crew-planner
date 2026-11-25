@@ -42,6 +42,7 @@ export interface Event {
   title: string
   date: string
   description: string | null
+  leaderId: number | null
   // Only set in the survey detail payload
   responseCount?: number
   assignmentCount?: number
@@ -138,6 +139,7 @@ export const eventApi = {
   create: (surveyId: number, data: { title: string; date: string; description?: string | null }) => api.post<Event>(`/surveys/${surveyId}/events`, data).then(r => r.data),
   update: (id: number, data: { title?: string; date?: string; description?: string | null }) => api.put<Event>(`/events/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/events/${id}`),
+  setLeader: (id: number, staffId: number | null) => api.put<Event>(`/events/${id}/leader`, { staffId }).then(r => r.data),
 }
 
 export const surveyApi = {
