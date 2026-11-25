@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { surveyApi, eventApi, staffApi, type SurveyDetail, type SurveyParticipant, type Event, type Staff, type MailError } from '../api'
+import { surveyApi, eventApi, eventNameApi, staffApi, type SurveyDetail, type SurveyParticipant, type Event, type EventName, type Staff, type MailError } from '../api'
 import AppModal from '../components/AppModal.vue'
 import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
 import { formatDate as formatEventDate } from '../utils/date'
@@ -259,12 +259,23 @@ const editingEvent = ref<Event | null>(null)
 const eventForm = ref({ title: '', date: '', description: '' })
 const eventSaving = ref(false)
 const eventError = ref('')
+const eventNames = ref<EventName[]>([])
+
+/** Loads the predefined event names suggested in the title field; the form works without them. */
+async function loadEventNames() {
+  try {
+    eventNames.value = await eventNameApi.list()
+  } catch {
+    eventNames.value = []
+  }
+}
 
 function openEventCreate() {
   editingEvent.value = null
   eventForm.value = { title: '', date: '', description: '' }
   eventError.value = ''
   eventModalOpen.value = true
+  loadEventNames()
 }
 
 function openEventEdit(item: Event) {
@@ -272,6 +283,7 @@ function openEventEdit(item: Event) {
   eventForm.value = { title: item.title, date: item.date, description: item.description ?? '' }
   eventError.value = ''
   eventModalOpen.value = true
+  loadEventNames()
 }
 
 function sortEvents() {
@@ -609,7 +621,10 @@ onMounted(load)
     <form @submit.prevent="saveEvent" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
-        <input v-model="eventForm.title" type="text" required maxlength="200" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <input v-model="eventForm.title" type="text" required maxlength="200" list="event-name-options" autocomplete="off" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <datalist id="event-name-options">
+          <option v-for="n in eventNames" :key="n.id" :value="n.name" />
+        </datalist>
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Datum</label>
