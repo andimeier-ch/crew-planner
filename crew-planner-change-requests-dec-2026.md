@@ -141,6 +141,8 @@ There is no reminder function.
 
 ## 6. Predefined event names
 
+**Status:** ✅ Done
+
 ### Current behaviour
 
 The admin has to type the event name every time, even for recurring names such as "Gottesdienst".
