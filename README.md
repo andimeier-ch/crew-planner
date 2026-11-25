@@ -49,7 +49,7 @@ Der Vite Dev Server leitet `/api/*`-Anfragen automatisch an `https://crew-planne
 
 ## E-Mail
 
-Einladungen werden direkt beim Klick auf «Einladungen senden» verschickt (kein Hintergrund-Worker).
+Einladungen und Erinnerungen werden direkt beim Klick verschickt (kein Hintergrund-Worker).
 
 | Variable | Bedeutung |
 |---|---|
@@ -154,7 +154,9 @@ Alle `/api/*`-Routen (ausser Login und Survey) erfordern `Authorization: Bearer 
 | DELETE | `/api/surveys/{id}` | Umfrage löschen |
 | GET | `/api/surveys/{id}/matrix` | Matrix-Daten (Staffs, Events, Verfügbarkeiten, Einteilungen) |
 | POST | `/api/surveys/{id}/send-invitations` | Einladungen an alle senden und Entwurf öffnen |
-| POST | `/api/surveys/{id}/participants/{participantId}/send-invitation` | Einladung an eine Person (erneut) senden |
+| POST | `/api/surveys/{id}/participants/{participantId}/send-invitation` | Einladung an eine Person senden |
+| POST | `/api/surveys/{id}/send-reminders` | Erinnerung an alle ohne Antwort senden |
+| POST | `/api/surveys/{id}/participants/{participantId}/send-reminder` | Erinnerung an eine Person senden |
 
 **Umfrage erstellen – Request Body:**
 ```json
