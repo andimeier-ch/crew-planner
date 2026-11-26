@@ -65,9 +65,17 @@ class AssignmentController extends AbstractApiController
     }
 
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
-    public function delete(Assignment $assignment, EntityManagerInterface $em): JsonResponse
+    public function delete(Assignment $assignment, EntityManagerInterface $em, AssignmentRepository $repo): JsonResponse
     {
+        $staff = $assignment->getStaff();
+        $event = $assignment->getEvent();
         $em->remove($assignment);
+
+        // A leader whose last assignment for the event is removed no longer leads it.
+        $remaining = $repo->count(['staff' => $staff, 'event' => $event]) - 1;
+        if ($remaining === 0 && $event->getLeader() === $staff) {
+            $event->setLeader(null);
+        }
         $em->flush();
 
         return $this->json(null, 204);
@@ -77,7 +85,12 @@ class AssignmentController extends AbstractApiController
     {
         return [
             'id' => $a->getId(),
-            'staff' => ['id' => $a->getStaff()->getId(), 'name' => $a->getStaff()->getName()],
+            'staff' => [
+                'id' => $a->getStaff()->getId(),
+                'firstName' => $a->getStaff()->getFirstName(),
+                'lastName' => $a->getStaff()->getLastName(),
+                'fullName' => $a->getStaff()->getFullName(),
+            ],
             'event' => ['id' => $a->getEvent()->getId(), 'title' => $a->getEvent()->getTitle()],
             'skill' => ['id' => $a->getSkill()->getId(), 'name' => $a->getSkill()->getName()],
         ];

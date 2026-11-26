@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { surveyApi, type SurveyDetail } from '../api'
+import { surveyApi, eventApi, eventNameApi, staffApi, type SurveyDetail, type SurveyParticipant, type Event, type EventName, type Staff, type MailError } from '../api'
+import AppModal from '../components/AppModal.vue'
+import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
+import { formatDate as formatEventDate } from '../utils/date'
 
 const route = useRoute()
 const router = useRouter()
@@ -11,20 +14,406 @@ const copied = ref<number | null>(null)
 
 async function load() {
   survey.value = await surveyApi.get(Number(route.params.id))
+  resetMailTextForm()
   loading.value = false
 }
 
-function surveyLink(token: string) {
-  return `${window.location.origin}/survey/${token}`
-}
-
-async function copyLink(token: string, id: number) {
-  await navigator.clipboard.writeText(surveyLink(token))
-  copied.value = id
-  setTimeout(() => { if (copied.value === id) copied.value = null }, 2000)
+async function copyLink(p: SurveyParticipant) {
+  await navigator.clipboard.writeText(p.surveyLink)
+  copied.value = p.id
+  setTimeout(() => { if (copied.value === p.id) copied.value = null }, 2000)
 }
 
 const formatDate = (d: string) => new Date(d).toLocaleString('de-CH')
+
+function errorMessage(e: any): string {
+  if (e.response?.data?.errors) return Object.values(e.response.data.errors).join(', ')
+  return e.response?.data?.error ?? 'Fehler beim Speichern.'
+}
+
+/** Describes the data that gets deleted along with an event or participant; empty if there is none. */
+function dataLossText(responseCount = 0, assignmentCount = 0): string {
+  const parts: string[] = []
+  if (responseCount > 0) parts.push(`${responseCount} ${responseCount === 1 ? 'Antwort' : 'Antworten'}`)
+  if (assignmentCount > 0) parts.push(`${assignmentCount} ${assignmentCount === 1 ? 'Einteilung' : 'Einteilungen'}`)
+  return parts.join(' und ')
+}
+
+// ── Survey status ────────────────────────────────────────────────────────────
+
+const statusChanging = ref(false)
+
+async function toggleClosed() {
+  if (!survey.value) return
+  const closing = survey.value.status !== 'closed'
+  if (closing) {
+    const message = `Umfrage «${survey.value.title}» schliessen?\n\n`
+      + 'Teilnehmende können ihre Antworten danach nicht mehr ändern.'
+    if (!confirm(message)) return
+  }
+  statusChanging.value = true
+  try {
+    const updated = closing ? await surveyApi.close(survey.value.id) : await surveyApi.reopen(survey.value.id)
+    survey.value.status = updated.status
+  } finally {
+    statusChanging.value = false
+  }
+}
+
+// ── E-mails (invitations, reminders & assignments) ──────────────────────────
+
+const PLACEHOLDERS = ['{firstName}', '{lastName}', '{surveyTitle}', '{surveyLink}', '{deadline}']
+
+const mailSending = ref(false)
+const mailErrors = ref<MailError[]>([])
+const sendError = ref('')
+const sendNotice = ref('')
+const sendingParticipantId = ref<number | null>(null)
+const sentParticipantId = ref<number | null>(null)
+
+/** Participants with an e-mail address who have not responded yet: the recipients of a bulk reminder. */
+const pendingReminderCount = computed(() =>
+  survey.value?.participants.filter(p => p.staff.email && p.responseCount === 0).length ?? 0)
+
+/** Participants with an e-mail address and at least one assignment: the recipients of the assignment e-mail. */
+const assignmentRecipientCount = computed(() =>
+  survey.value?.participants.filter(p => p.staff.email && p.assignmentCount > 0).length ?? 0)
+
+/** Builds the confirm text, mentioning participants who are skipped for lack of an e-mail address. */
+function confirmText(question: string, withoutEmail: number, footer = '', withoutEmailHint = 'Den Link kannst du manuell kopieren.'): string {
+  let message = question
+  if (withoutEmail > 0) {
+    message += `\n\n${withoutEmail} ${withoutEmail === 1 ? 'Person hat' : 'Personen haben'} keine E-Mail-Adresse `
+      + 'und ' + (withoutEmail === 1 ? 'erhält' : 'erhalten') + ` keine E-Mail. ${withoutEmailHint}`
+  }
+  return footer ? `${message}\n\n${footer}` : message
+}
+
+/**
+ * Runs a bulk send after confirmation; pending text edits are saved first so no outdated text goes out.
+ * With a notice label, the number of sent e-mails is reported, e.g. "Erinnerung an 3 Personen gesendet."
+ */
+async function bulkSend(
+  message: string,
+  send: () => Promise<SurveyDetail & { mailErrors: MailError[]; sentCount?: number }>,
+  noticeLabel = '',
+) {
+  if (!survey.value || !confirm(message)) return
+  if (mailTextDirty.value && !(await saveMailText())) {
+    mailTextOpen.value = true
+    return
+  }
+
+  mailSending.value = true
+  mailErrors.value = []
+  sendError.value = ''
+  sendNotice.value = ''
+  try {
+    const result = await send()
+    mailErrors.value = result.mailErrors
+    survey.value.status = result.status
+    survey.value.participants = result.participants
+    if (noticeLabel && result.sentCount !== undefined) {
+      sendNotice.value = `${noticeLabel} an ${result.sentCount} ${result.sentCount === 1 ? 'Person' : 'Personen'} gesendet.`
+    }
+  } catch (e: any) {
+    sendError.value = errorMessage(e)
+  } finally {
+    mailSending.value = false
+  }
+}
+
+function sendInvitations() {
+  if (!survey.value) return
+  const withEmail = survey.value.participants.filter(p => p.staff.email).length
+  const id = survey.value.id
+  bulkSend(
+    confirmText(
+      `Einladung an ${withEmail} ${withEmail === 1 ? 'Teilnehmende:n' : 'Teilnehmende'} senden?`,
+      survey.value.participants.length - withEmail,
+      'Die Umfrage wird danach geöffnet.',
+    ),
+    () => surveyApi.sendInvitations(id),
+  )
+}
+
+function sendReminders() {
+  if (!survey.value) return
+  const count = pendingReminderCount.value
+  const withoutEmail = survey.value.participants.filter(p => !p.staff.email && p.responseCount === 0).length
+  const id = survey.value.id
+  bulkSend(
+    confirmText(
+      `Erinnerung an ${count} ${count === 1 ? 'Person' : 'Personen'} senden, die noch nicht geantwortet ${count === 1 ? 'hat' : 'haben'}?`,
+      withoutEmail,
+    ),
+    () => surveyApi.sendReminders(id),
+    'Erinnerung',
+  )
+}
+
+function sendAssignments() {
+  if (!survey.value) return
+  const count = assignmentRecipientCount.value
+  const withoutEmail = survey.value.participants.filter(p => !p.staff.email && p.assignmentCount > 0).length
+  const id = survey.value.id
+  bulkSend(
+    confirmText(
+      `Einteilung an ${count} ${count === 1 ? 'eingeteilte Person' : 'eingeteilte Personen'} senden?`,
+      withoutEmail,
+      '',
+      'Bitte informiere sie persönlich.',
+    ),
+    () => surveyApi.sendAssignments(id),
+    'Einteilung',
+  )
+}
+
+/** Sends one e-mail to a single participant; pending text edits are saved first. */
+async function sendSingle(p: SurveyParticipant, send: (surveyId: number) => Promise<SurveyParticipant>) {
+  if (!survey.value) return
+  if (mailTextDirty.value && !(await saveMailText())) {
+    mailTextOpen.value = true
+    return
+  }
+  sendingParticipantId.value = p.id
+  sendError.value = ''
+  try {
+    const updated = await send(survey.value.id)
+    p.lastEmailedAt = updated.lastEmailedAt
+    p.lastAssignmentSentAt = updated.lastAssignmentSentAt
+    sentParticipantId.value = p.id
+    setTimeout(() => { if (sentParticipantId.value === p.id) sentParticipantId.value = null }, 2000)
+  } catch (e: any) {
+    sendError.value = `${p.staff.fullName}: ${errorMessage(e)}`
+  } finally {
+    sendingParticipantId.value = null
+  }
+}
+
+/** Sends the invitation (never e-mailed yet) or a reminder (e-mailed, no answer) to a single participant. */
+function sendToParticipant(p: SurveyParticipant) {
+  sendSingle(p, id => p.lastEmailedAt ? surveyApi.sendReminder(id, p.id) : surveyApi.sendInvitation(id, p.id))
+}
+
+function sendAssignmentToParticipant(p: SurveyParticipant) {
+  sendSingle(p, id => surveyApi.sendAssignment(id, p.id))
+}
+
+// ── E-mail texts ─────────────────────────────────────────────────────────────
+
+/** Subject and body field of each e-mail text tab. */
+const MAIL_TEXT_FIELDS = {
+  invitation: ['invitationSubject', 'invitationBody'],
+  reminder: ['reminderSubject', 'reminderBody'],
+  assignment: ['assignmentSubject', 'assignmentBody'],
+} as const
+const MAIL_TEXT_TABS = [['invitation', 'Einladung'], ['reminder', 'Erinnerung'], ['assignment', 'Einteilung']] as const
+
+type MailTextTab = keyof typeof MAIL_TEXT_FIELDS
+type MailTextField = typeof MAIL_TEXT_FIELDS[MailTextTab][number]
+type MailTextForm = Record<MailTextField, string>
+
+const ALL_MAIL_TEXT_FIELDS = Object.values(MAIL_TEXT_FIELDS).flat() as MailTextField[]
+
+const mailTextOpen = ref(false)
+const mailTextTab = ref<MailTextTab>('invitation')
+const mailTextForm = ref<MailTextForm>(Object.fromEntries(ALL_MAIL_TEXT_FIELDS.map(f => [f, ''])) as MailTextForm)
+const mailTextFields = computed(() => MAIL_TEXT_FIELDS[mailTextTab.value])
+const mailTextPlaceholders = computed(() => mailTextTab.value === 'assignment' ? [...PLACEHOLDERS, '{plan}'] : PLACEHOLDERS)
+const mailTextSaving = ref(false)
+const mailTextSaved = ref(false)
+const mailTextError = ref('')
+
+function isTabDirty(tab: MailTextTab): boolean {
+  const current = survey.value
+  if (!current) return false
+  return MAIL_TEXT_FIELDS[tab].some(f => mailTextForm.value[f] !== current[f])
+}
+
+const mailTextDirty = computed(() => (Object.keys(MAIL_TEXT_FIELDS) as MailTextTab[]).some(isTabDirty))
+
+function resetMailTextForm() {
+  const current = survey.value
+  if (!current) return
+  mailTextForm.value = Object.fromEntries(ALL_MAIL_TEXT_FIELDS.map(f => [f, current[f]])) as MailTextForm
+}
+
+/** Saves all e-mail texts; returns false if saving failed. */
+async function saveMailText(): Promise<boolean> {
+  if (!survey.value) return false
+  mailTextSaving.value = true
+  mailTextError.value = ''
+  try {
+    const updated = await surveyApi.update(survey.value.id, mailTextForm.value)
+    for (const f of ALL_MAIL_TEXT_FIELDS) survey.value[f] = updated[f]
+    resetMailTextForm()
+    mailTextSaved.value = true
+    setTimeout(() => { mailTextSaved.value = false }, 2000)
+    return true
+  } catch (e: any) {
+    mailTextError.value = errorMessage(e)
+    return false
+  } finally {
+    mailTextSaving.value = false
+  }
+}
+
+// ── Survey title & deadline ──────────────────────────────────────────────────
+
+const settingsModalOpen = ref(false)
+const settingsForm = ref({ title: '', deadline: '' })
+const settingsSaving = ref(false)
+const settingsError = ref('')
+
+/** Converts an ISO date string to the local `YYYY-MM-DDTHH:mm` format of a datetime-local input. */
+function toDateTimeLocal(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function openSettingsEdit() {
+  if (!survey.value) return
+  settingsForm.value = { title: survey.value.title, deadline: toDateTimeLocal(survey.value.deadline) }
+  settingsError.value = ''
+  settingsModalOpen.value = true
+}
+
+async function saveSettings() {
+  if (!survey.value) return
+  settingsSaving.value = true
+  settingsError.value = ''
+  try {
+    const updated = await surveyApi.update(survey.value.id, settingsForm.value)
+    survey.value.title = updated.title
+    survey.value.deadline = updated.deadline
+    survey.value.isDeadlinePassed = updated.isDeadlinePassed
+    settingsModalOpen.value = false
+  } catch (e: any) {
+    settingsError.value = errorMessage(e)
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
+// ── Events ───────────────────────────────────────────────────────────────────
+
+const eventModalOpen = ref(false)
+const editingEvent = ref<Event | null>(null)
+const eventForm = ref({ title: '', date: '', description: '' })
+const eventSaving = ref(false)
+const eventError = ref('')
+const eventNames = ref<EventName[]>([])
+
+/** Loads the predefined event names suggested in the title field; the form works without them. */
+async function loadEventNames() {
+  try {
+    eventNames.value = await eventNameApi.list()
+  } catch {
+    eventNames.value = []
+  }
+}
+
+function openEventCreate() {
+  editingEvent.value = null
+  eventForm.value = { title: '', date: '', description: '' }
+  eventError.value = ''
+  eventModalOpen.value = true
+  loadEventNames()
+}
+
+function openEventEdit(item: Event) {
+  editingEvent.value = item
+  eventForm.value = { title: item.title, date: item.date, description: item.description ?? '' }
+  eventError.value = ''
+  eventModalOpen.value = true
+  loadEventNames()
+}
+
+function sortEvents() {
+  survey.value?.events.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+async function saveEvent() {
+  if (!survey.value) return
+  eventSaving.value = true
+  eventError.value = ''
+  try {
+    const payload = { ...eventForm.value, description: eventForm.value.description || null }
+    if (editingEvent.value) {
+      const updated = await eventApi.update(editingEvent.value.id, payload)
+      const idx = survey.value.events.findIndex(i => i.id === updated.id)
+      if (idx !== -1) survey.value.events[idx] = { ...survey.value.events[idx], ...updated }
+    } else {
+      const created = await eventApi.create(survey.value.id, payload)
+      survey.value.events.push({ ...created, responseCount: 0, assignmentCount: 0 })
+    }
+    sortEvents()
+    eventModalOpen.value = false
+  } catch (e: any) {
+    eventError.value = errorMessage(e)
+  } finally {
+    eventSaving.value = false
+  }
+}
+
+async function removeEvent(item: Event) {
+  if (!survey.value) return
+  const loss = dataLossText(item.responseCount, item.assignmentCount)
+  if (loss && !confirm(`Event «${item.title}» löschen?\n\nFür dieses Event existieren ${loss}. Diese werden ebenfalls gelöscht.`)) return
+  await eventApi.remove(item.id)
+  survey.value.events = survey.value.events.filter(i => i.id !== item.id)
+}
+
+// ── Participants ─────────────────────────────────────────────────────────────
+
+const participantModalOpen = ref(false)
+const allStaffs = ref<Staff[]>([])
+const selectedStaffIds = ref<number[]>([])
+const participantSaving = ref(false)
+const participantError = ref('')
+
+const availableStaffs = computed(() => {
+  const taken = new Set(survey.value?.participants.map(p => p.staff.id))
+  return allStaffs.value.filter(s => !taken.has(s.id))
+})
+
+const allAvailableSelected = computed(() =>
+  availableStaffs.value.length > 0 && selectedStaffIds.value.length === availableStaffs.value.length)
+
+function toggleAllAvailable() {
+  selectedStaffIds.value = allAvailableSelected.value ? [] : availableStaffs.value.map(s => s.id)
+}
+
+async function openParticipantAdd() {
+  selectedStaffIds.value = []
+  participantError.value = ''
+  participantModalOpen.value = true
+  allStaffs.value = await staffApi.list()
+}
+
+async function saveParticipants() {
+  if (!survey.value) return
+  participantSaving.value = true
+  participantError.value = ''
+  try {
+    survey.value.participants = (await surveyApi.addParticipants(survey.value.id, selectedStaffIds.value)).participants
+    participantModalOpen.value = false
+  } catch (e: any) {
+    participantError.value = errorMessage(e)
+  } finally {
+    participantSaving.value = false
+  }
+}
+
+async function removeParticipant(p: SurveyParticipant) {
+  if (!survey.value) return
+  const loss = dataLossText(p.responseCount, p.assignmentCount)
+  if (loss && !confirm(`${p.staff.fullName} aus der Umfrage entfernen?\n\nFür diese Person existieren ${loss}. Diese werden ebenfalls gelöscht.`)) return
+  await surveyApi.removeParticipant(survey.value.id, p.id)
+  survey.value.participants = survey.value.participants.filter(i => i.id !== p.id)
+}
 
 onMounted(load)
 </script>
@@ -33,7 +422,8 @@ onMounted(load)
   <div>
     <div class="flex items-center gap-3 mb-6">
       <button @click="router.back()" class="text-gray-400 hover:text-gray-600 text-sm">← Zurück</button>
-      <h1 class="text-xl font-semibold text-gray-800">Umfrage-Details</h1>
+      <h1 class="text-xl font-semibold text-gray-800">{{ survey?.title ?? 'Umfrage-Details' }}</h1>
+      <button v-if="survey" @click="openSettingsEdit" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">Bearbeiten</button>
     </div>
 
     <div v-if="loading" class="text-gray-400 text-sm">Laden…</div>
@@ -46,9 +436,33 @@ onMounted(load)
         </div>
         <div>
           <div class="text-xs text-gray-500 mb-0.5">Status</div>
-          <span class="text-xs font-medium px-2 py-0.5 rounded-full" :class="survey.isExpired ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
-            {{ survey.isExpired ? 'Abgelaufen' : 'Aktiv' }}
-          </span>
+          <div class="flex items-center gap-2">
+            <SurveyStatusBadge :status="survey.status" :is-deadline-passed="survey.isDeadlinePassed" />
+            <button
+              v-if="survey.status === 'draft'"
+              @click="sendInvitations"
+              :disabled="mailSending || survey.participants.length === 0"
+              class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >{{ mailSending ? 'Senden…' : 'Einladungen senden' }}</button>
+            <button
+              v-if="survey.status === 'open'"
+              @click="sendReminders"
+              :disabled="mailSending || pendingReminderCount === 0"
+              class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >{{ mailSending ? 'Senden…' : `Erinnerung senden (${pendingReminderCount})` }}</button>
+            <button
+              v-if="survey.status === 'closed'"
+              @click="sendAssignments"
+              :disabled="mailSending || assignmentRecipientCount === 0"
+              class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >{{ mailSending ? 'Senden…' : `Einteilung senden (${assignmentRecipientCount})` }}</button>
+            <button
+              v-if="survey.status !== 'draft'"
+              @click="toggleClosed"
+              :disabled="statusChanging"
+              class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
+            >{{ survey.status === 'closed' ? 'Wieder öffnen' : 'Umfrage schliessen' }}</button>
+          </div>
         </div>
         <div>
           <div class="text-xs text-gray-500 mb-0.5">Events</div>
@@ -59,36 +473,222 @@ onMounted(load)
         </RouterLink>
       </div>
 
-      <h2 class="text-sm font-semibold text-gray-700 mb-3">Teilnehmer & Links</h2>
+      <div v-if="mailErrors.length > 0" class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-6">
+        <div class="font-medium mb-1">Folgende E-Mails konnten nicht gesendet werden:</div>
+        <ul class="list-disc pl-5 space-y-0.5">
+          <li v-for="m in mailErrors" :key="m.participantId">{{ m.name }}: {{ m.error }}</li>
+        </ul>
+      </div>
+      <div v-if="sendNotice" class="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 mb-6">{{ sendNotice }}</div>
+      <div v-if="sendError" class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-6">{{ sendError }}</div>
+
+      <div class="bg-white border border-gray-200 rounded-lg mb-6 text-sm">
+        <button
+          type="button"
+          @click="mailTextOpen = !mailTextOpen"
+          class="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-gray-50 rounded-lg"
+          :aria-expanded="mailTextOpen"
+        >
+          <span class="text-gray-400 text-xs w-3">{{ mailTextOpen ? '▾' : '▸' }}</span>
+          <span class="font-semibold text-gray-700 shrink-0">E-Mail Text</span>
+          <span v-if="mailTextDirty" class="text-xs text-amber-600 font-medium">Ungespeicherte Änderungen</span>
+        </button>
+        <form v-if="mailTextOpen" @submit.prevent="saveMailText" class="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
+          <div class="flex gap-1 border-b border-gray-200" role="tablist">
+            <button
+              v-for="tab in MAIL_TEXT_TABS"
+              :key="tab[0]"
+              type="button"
+              role="tab"
+              :aria-selected="mailTextTab === tab[0]"
+              @click="mailTextTab = tab[0]"
+              class="px-3 py-1.5 -mb-px border-b-2 text-sm font-medium"
+              :class="mailTextTab === tab[0] ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
+            >
+              {{ tab[1] }}
+              <span v-if="isTabDirty(tab[0])" class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 align-middle ml-1"></span>
+            </button>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Betreff</label>
+            <input v-model="mailTextForm[mailTextFields[0]]" type="text" required maxlength="255" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Text</label>
+            <textarea v-model="mailTextForm[mailTextFields[1]]" rows="12" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div class="text-xs text-gray-500">
+            Platzhalter:
+            <code v-for="ph in mailTextPlaceholders" :key="ph" class="ml-1 bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">{{ ph }}</code>
+            <span v-if="mailTextTab === 'assignment'" class="block mt-1">
+              <code class="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">{plan}</code> fügt deine Einsätze und den gesamten Plan ein.
+            </span>
+          </div>
+          <p v-if="mailTextError" class="text-sm text-red-600">{{ mailTextError }}</p>
+          <div class="flex items-center justify-end gap-3">
+            <span v-if="mailTextSaved" class="text-xs text-green-600 font-medium">✓ Gespeichert</span>
+            <button type="button" v-if="mailTextDirty" @click="resetMailTextForm" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Verwerfen</button>
+            <button type="submit" :disabled="mailTextSaving || !mailTextDirty" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ mailTextSaving ? 'Speichern…' : 'Speichern' }}</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-gray-700">Events</h2>
+        <button @click="openEventCreate" class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors">Neues Event</button>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Datum</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Titel</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Beschreibung</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr v-if="survey.events.length === 0"><td colspan="4" class="px-4 py-6 text-center text-gray-400">Noch keine Events erfasst.</td></tr>
+            <tr v-for="item in survey.events" :key="item.id" class="hover:bg-gray-50">
+              <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ formatEventDate(item.date) }}</td>
+              <td class="px-4 py-3 text-gray-800">{{ item.title }}</td>
+              <td class="px-4 py-3 text-gray-500 truncate max-w-xs">{{ item.description ?? '—' }}</td>
+              <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                <button @click="openEventEdit(item)" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">Bearbeiten</button>
+                <button @click="removeEvent(item)" class="text-red-500 hover:text-red-700 text-xs font-medium">Löschen</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-gray-700">Teilnehmer & Links</h2>
+        <button @click="openParticipantAdd" class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors">Teilnehmer hinzufügen</button>
+      </div>
       <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <table class="w-full text-sm">
           <thead class="bg-gray-50 border-b border-gray-200">
             <tr>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Staff</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Umfrage-Link</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Antwort</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Zuletzt gemailt</th>
+              <th class="text-left px-4 py-3 font-medium text-gray-600">Einteilung gesendet</th>
               <th class="text-left px-4 py-3 font-medium text-gray-600">Bemerkung</th>
+              <th class="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
+            <tr v-if="survey.participants.length === 0"><td colspan="7" class="px-4 py-6 text-center text-gray-400">Noch keine Teilnehmer.</td></tr>
             <tr v-for="p in survey.participants" :key="p.id" class="hover:bg-gray-50">
               <td class="px-4 py-3 text-gray-800">
-                {{ p.staff.name }}
+                {{ p.staff.fullName }}
                 <span v-if="p.staff.isLeader" class="ml-1.5 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Leader</span>
+                <span v-if="!p.staff.email" class="ml-1.5 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Keine E-Mail</span>
               </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
-                  <code class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded truncate max-w-xs">{{ surveyLink(p.token) }}</code>
+                  <code class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded truncate max-w-xs">{{ p.surveyLink }}</code>
                   <button
-                    @click="copyLink(p.token, p.id)"
+                    @click="copyLink(p)"
                     class="text-xs text-indigo-600 hover:text-indigo-800 font-medium shrink-0"
                   >{{ copied === p.id ? '✓ Kopiert' : 'Kopieren' }}</button>
                 </div>
               </td>
+              <td class="px-4 py-3 text-xs whitespace-nowrap">
+                <span v-if="p.responseCount > 0" class="text-green-600 font-medium">✓ Geantwortet</span>
+                <span v-else class="text-gray-400">—</span>
+              </td>
+              <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{{ p.lastEmailedAt ? formatDate(p.lastEmailedAt) : '—' }}</td>
+              <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{{ p.lastAssignmentSentAt ? formatDate(p.lastAssignmentSentAt) : '—' }}</td>
               <td class="px-4 py-3 text-gray-500 text-xs">{{ p.remark ?? '—' }}</td>
+              <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+                <button
+                  v-if="survey.status === 'open' && p.staff.email && (p.responseCount === 0 || sentParticipantId === p.id)"
+                  @click="sendToParticipant(p)"
+                  :disabled="sendingParticipantId === p.id || sentParticipantId === p.id"
+                  class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
+                >{{ sentParticipantId === p.id ? '✓ Gesendet' : sendingParticipantId === p.id ? 'Senden…' : p.lastEmailedAt ? 'Erinnern' : 'Einladung senden' }}</button>
+                <button
+                  v-if="survey.status === 'closed' && p.staff.email && p.assignmentCount > 0"
+                  @click="sendAssignmentToParticipant(p)"
+                  :disabled="sendingParticipantId === p.id || sentParticipantId === p.id"
+                  class="text-indigo-600 hover:text-indigo-800 text-xs font-medium disabled:opacity-50"
+                >{{ sentParticipantId === p.id ? '✓ Gesendet' : sendingParticipantId === p.id ? 'Senden…' : p.lastAssignmentSentAt ? 'Einteilung erneut senden' : 'Einteilung senden' }}</button>
+                <button @click="removeParticipant(p)" class="text-red-500 hover:text-red-700 text-xs font-medium">Entfernen</button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
     </template>
   </div>
+
+  <AppModal v-if="settingsModalOpen" title="Umfrage bearbeiten" @close="settingsModalOpen = false">
+    <form @submit.prevent="saveSettings" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
+        <input v-model="settingsForm.title" type="text" required maxlength="200" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
+        <input v-model="settingsForm.deadline" type="datetime-local" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <p v-if="settingsError" class="text-sm text-red-600">{{ settingsError }}</p>
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" @click="settingsModalOpen = false" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Abbrechen</button>
+        <button type="submit" :disabled="settingsSaving" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ settingsSaving ? 'Speichern…' : 'Speichern' }}</button>
+      </div>
+    </form>
+  </AppModal>
+
+  <AppModal v-if="participantModalOpen" title="Teilnehmer hinzufügen" @close="participantModalOpen = false">
+    <form @submit.prevent="saveParticipants" class="space-y-4">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-sm font-medium text-gray-700">Staffs</label>
+          <button v-if="availableStaffs.length > 0" type="button" @click="toggleAllAvailable" class="text-xs text-indigo-600 hover:text-indigo-800">{{ allAvailableSelected ? 'Alle abwählen' : 'Alle auswählen' }}</button>
+        </div>
+        <div v-if="availableStaffs.length === 0" class="text-sm text-gray-400 border border-gray-200 rounded-md px-3 py-4 text-center">Alle Staffs sind bereits Teilnehmer.</div>
+        <div v-else class="max-h-60 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
+          <label v-for="staff in availableStaffs" :key="staff.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
+            <input type="checkbox" :value="staff.id" v-model="selectedStaffIds" class="rounded" />
+            <span>{{ staff.fullName }}</span>
+            <span v-if="staff.isLeader" class="text-xs text-amber-600 font-medium">Leader</span>
+          </label>
+        </div>
+      </div>
+      <p v-if="participantError" class="text-sm text-red-600">{{ participantError }}</p>
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" @click="participantModalOpen = false" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Abbrechen</button>
+        <button type="submit" :disabled="participantSaving || selectedStaffIds.length === 0" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ participantSaving ? 'Hinzufügen…' : 'Hinzufügen' }}</button>
+      </div>
+    </form>
+  </AppModal>
+
+  <AppModal v-if="eventModalOpen" :title="editingEvent ? 'Event bearbeiten' : 'Neues Event'" @close="eventModalOpen = false">
+    <form @submit.prevent="saveEvent" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
+        <input v-model="eventForm.title" type="text" required maxlength="200" list="event-name-options" autocomplete="off" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <datalist id="event-name-options">
+          <option v-for="n in eventNames" :key="n.id" :value="n.name" />
+        </datalist>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Datum</label>
+        <input v-model="eventForm.date" type="date" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Beschreibung (optional)</label>
+        <textarea v-model="eventForm.description" rows="3" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <p v-if="eventError" class="text-sm text-red-600">{{ eventError }}</p>
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" @click="eventModalOpen = false" class="text-sm px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">Abbrechen</button>
+        <button type="submit" :disabled="eventSaving" class="text-sm px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">{{ eventSaving ? 'Speichern…' : 'Speichern' }}</button>
+      </div>
+    </form>
+  </AppModal>
 </template>

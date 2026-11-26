@@ -1,30 +1,27 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { surveyApi, staffApi, eventApi, type SurveySummary, type Staff, type Event } from '../api'
+import { surveyApi, staffApi, type SurveySummary, type Staff } from '../api'
 import AppModal from '../components/AppModal.vue'
-import { formatDate } from '../utils/date'
+import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
 
 const router = useRouter()
 const items = ref<SurveySummary[]>([])
 const allStaffs = ref<Staff[]>([])
-const allEvents = ref<Event[]>([])
 const loading = ref(false)
 const modalOpen = ref(false)
-const form = ref({ deadline: '', staffIds: [] as number[], eventIds: [] as number[] })
+const form = ref({ title: '', deadline: '', staffIds: [] as number[] })
 const saving = ref(false)
 const error = ref('')
 
 async function load() {
   loading.value = true
-  ;[items.value, allStaffs.value, allEvents.value] = await Promise.all([
-    surveyApi.list(), staffApi.list(), eventApi.list(),
-  ])
+  ;[items.value, allStaffs.value] = await Promise.all([surveyApi.list(), staffApi.list()])
   loading.value = false
 }
 
 function openCreate() {
-  form.value = { deadline: '', staffIds: [], eventIds: [] }
+  form.value = { title: '', deadline: '', staffIds: [] }
   error.value = ''
   modalOpen.value = true
 }
@@ -37,8 +34,10 @@ async function save() {
     const created = await surveyApi.create(form.value)
     items.value.unshift({
       id: created.id,
+      title: created.title,
       deadline: created.deadline,
-      isExpired: created.isExpired,
+      status: created.status,
+      isDeadlinePassed: created.isDeadlinePassed,
       eventCount: created.events.length,
       participantCount: created.participants.length,
     })
@@ -52,7 +51,10 @@ async function save() {
 }
 
 async function remove(item: SurveySummary) {
-  if (!confirm('Umfrage wirklich löschen?')) return
+  const message = `Umfrage «${item.title}» löschen?\n\n`
+    + `Dabei werden ${item.eventCount} Events, ${item.participantCount} Teilnehmer `
+    + 'sowie alle Antworten und Einteilungen endgültig gelöscht.'
+  if (!confirm(message)) return
   await surveyApi.remove(item.id)
   items.value = items.value.filter(i => i.id !== item.id)
 }
@@ -60,13 +62,9 @@ async function remove(item: SurveySummary) {
 const formatDeadline = (d: string) => new Date(d).toLocaleString('de-CH')
 
 const allStaffsSelected = computed(() => allStaffs.value.length > 0 && form.value.staffIds.length === allStaffs.value.length)
-const allEventsSelected = computed(() => allEvents.value.length > 0 && form.value.eventIds.length === allEvents.value.length)
 
 function toggleAllStaffs() {
   form.value.staffIds = allStaffsSelected.value ? [] : allStaffs.value.map(s => s.id)
-}
-function toggleAllEvents() {
-  form.value.eventIds = allEventsSelected.value ? [] : allEvents.value.map(e => e.id)
 }
 
 onMounted(load)
@@ -83,6 +81,7 @@ onMounted(load)
       <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
+            <th class="text-left px-4 py-3 font-medium text-gray-600">Titel</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Deadline</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Events</th>
             <th class="text-left px-4 py-3 font-medium text-gray-600">Teilnehmer</th>
@@ -91,16 +90,15 @@ onMounted(load)
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          <tr v-if="loading"><td colspan="5" class="px-4 py-6 text-center text-gray-400">Laden…</td></tr>
-          <tr v-else-if="items.length === 0"><td colspan="5" class="px-4 py-6 text-center text-gray-400">Noch keine Umfragen vorhanden.</td></tr>
+          <tr v-if="loading"><td colspan="6" class="px-4 py-6 text-center text-gray-400">Laden…</td></tr>
+          <tr v-else-if="items.length === 0"><td colspan="6" class="px-4 py-6 text-center text-gray-400">Noch keine Umfragen vorhanden.</td></tr>
           <tr v-for="item in items" :key="item.id" class="hover:bg-gray-50">
+            <td class="px-4 py-3 text-gray-800 font-medium">{{ item.title }}</td>
             <td class="px-4 py-3 text-gray-800 whitespace-nowrap">{{ formatDeadline(item.deadline) }}</td>
             <td class="px-4 py-3 text-gray-600">{{ item.eventCount }}</td>
             <td class="px-4 py-3 text-gray-600">{{ item.participantCount }}</td>
             <td class="px-4 py-3">
-              <span class="text-xs font-medium px-2 py-0.5 rounded-full" :class="item.isExpired ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
-                {{ item.isExpired ? 'Abgelaufen' : 'Aktiv' }}
-              </span>
+              <SurveyStatusBadge :status="item.status" :is-deadline-passed="item.isDeadlinePassed" />
             </td>
             <td class="px-4 py-3 text-right space-x-2">
               <RouterLink :to="`/surveys/${item.id}`" class="text-indigo-600 hover:text-indigo-800 text-xs font-medium">Details</RouterLink>
@@ -116,6 +114,11 @@ onMounted(load)
   <AppModal v-if="modalOpen" title="Neue Umfrage" @close="modalOpen = false">
     <form @submit.prevent="save" class="space-y-5">
       <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
+        <input v-model="form.title" type="text" required maxlength="200" placeholder="z.B. Crew Advent 2026" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+
+      <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
         <input v-model="form.deadline" type="datetime-local" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
       </div>
@@ -128,25 +131,13 @@ onMounted(load)
         <div class="max-h-40 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
           <label v-for="staff in allStaffs" :key="staff.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
             <input type="checkbox" :value="staff.id" v-model="form.staffIds" class="rounded" />
-            <span>{{ staff.name }}</span>
+            <span>{{ staff.fullName }}</span>
             <span v-if="staff.isLeader" class="text-xs text-amber-600 font-medium">Leader</span>
           </label>
         </div>
       </div>
 
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <label class="block text-sm font-medium text-gray-700">Events</label>
-          <button type="button" @click="toggleAllEvents" class="text-xs text-indigo-600 hover:text-indigo-800">{{ allEventsSelected ? 'Alle abwählen' : 'Alle auswählen' }}</button>
-        </div>
-        <div class="max-h-40 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
-          <label v-for="event in allEvents" :key="event.id" class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
-            <input type="checkbox" :value="event.id" v-model="form.eventIds" class="rounded" />
-            <span class="text-gray-500 w-28 shrink-0">{{ formatDate(event.date) }}</span>
-            <span>{{ event.title }}</span>
-          </label>
-        </div>
-      </div>
+      <p class="text-xs text-gray-500">Events erfasst du nach dem Erstellen auf der Detailseite der Umfrage.</p>
 
       <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
       <div class="flex justify-end gap-3 pt-2">

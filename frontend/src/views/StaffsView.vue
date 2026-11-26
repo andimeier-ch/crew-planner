@@ -8,7 +8,7 @@ const allSkills = ref<Skill[]>([])
 const loading = ref(false)
 const modalOpen = ref(false)
 const editing = ref<Staff | null>(null)
-const form = ref({ name: '', email: '', isLeader: false, skillIds: [] as number[] })
+const form = ref({ firstName: '', lastName: '', email: '', isLeader: false, skillIds: [] as number[] })
 const saving = ref(false)
 const error = ref('')
 
@@ -20,14 +20,14 @@ async function load() {
 
 function openCreate() {
   editing.value = null
-  form.value = { name: '', email: '', isLeader: false, skillIds: [] }
+  form.value = { firstName: '', lastName: '', email: '', isLeader: false, skillIds: [] }
   error.value = ''
   modalOpen.value = true
 }
 
 function openEdit(item: Staff) {
   editing.value = item
-  form.value = { name: item.name, email: item.email ?? '', isLeader: item.isLeader, skillIds: item.skills.map(s => s.id) }
+  form.value = { firstName: item.firstName, lastName: item.lastName, email: item.email ?? '', isLeader: item.isLeader, skillIds: item.skills.map(s => s.id) }
   error.value = ''
   modalOpen.value = true
 }
@@ -36,6 +36,10 @@ function toggleSkill(id: number) {
   const idx = form.value.skillIds.indexOf(id)
   if (idx === -1) form.value.skillIds.push(id)
   else form.value.skillIds.splice(idx, 1)
+}
+
+function sortItems() {
+  items.value.sort((a, b) => a.lastName.localeCompare(b.lastName, 'de') || a.firstName.localeCompare(b.firstName, 'de'))
 }
 
 async function save() {
@@ -49,6 +53,7 @@ async function save() {
     } else {
       items.value.push(await staffApi.create(form.value))
     }
+    sortItems()
     modalOpen.value = false
   } catch (e: any) {
     error.value = e.response?.data?.errors ? Object.values(e.response.data.errors).join(', ') : 'Fehler beim Speichern.'
@@ -58,7 +63,7 @@ async function save() {
 }
 
 async function remove(item: Staff) {
-  if (!confirm(`Staff "${item.name}" wirklich löschen?`)) return
+  if (!confirm(`Staff "${item.fullName}" wirklich löschen?`)) return
   await staffApi.remove(item.id)
   items.value = items.value.filter(i => i.id !== item.id)
 }
@@ -88,7 +93,8 @@ onMounted(load)
           <tr v-else-if="items.length === 0"><td colspan="4" class="px-4 py-6 text-center text-gray-400">Noch keine Staffs vorhanden.</td></tr>
           <tr v-for="item in items" :key="item.id" class="hover:bg-gray-50">
             <td class="px-4 py-3">
-              <span class="text-gray-800">{{ item.name }}</span>
+              <span class="text-gray-800">{{ item.fullName }}</span>
+              <span v-if="!item.lastName" class="ml-2 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Nachname fehlt</span>
               <span v-if="item.isLeader" class="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Leader</span>
             </td>
             <td class="px-4 py-3 text-gray-500 text-sm">{{ item.email ?? '—' }}</td>
@@ -113,9 +119,15 @@ onMounted(load)
 
   <AppModal v-if="modalOpen" :title="editing ? 'Staff bearbeiten' : 'Neuer Staff'" @close="modalOpen = false">
     <form @submit.prevent="save" class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-        <input v-model="form.name" type="text" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Vorname</label>
+          <input v-model="form.firstName" type="text" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nachname</label>
+          <input v-model="form.lastName" type="text" required class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>

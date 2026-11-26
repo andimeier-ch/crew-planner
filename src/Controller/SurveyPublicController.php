@@ -21,6 +21,9 @@ class SurveyPublicController extends AbstractApiController
         }
 
         $survey = $participant->getSurvey();
+        if ($survey->isDraft()) {
+            return $this->json(['error' => 'Diese Umfrage ist noch nicht geöffnet.'], 403);
+        }
         $eventController = new EventController();
 
         $responseMap = [];
@@ -29,9 +32,16 @@ class SurveyPublicController extends AbstractApiController
         }
 
         return $this->json([
-            'isExpired' => $survey->isExpired(),
+            'title' => $survey->getTitle(),
+            'isClosed' => $survey->isClosed(),
+            'isDeadlinePassed' => $survey->isDeadlinePassed(),
             'deadline' => $survey->getDeadline()?->format(\DateTimeInterface::ATOM),
-            'staff' => ['id' => $participant->getStaff()->getId(), 'name' => $participant->getStaff()->getName()],
+            'staff' => [
+                'id' => $participant->getStaff()->getId(),
+                'firstName' => $participant->getStaff()->getFirstName(),
+                'lastName' => $participant->getStaff()->getLastName(),
+                'fullName' => $participant->getStaff()->getFullName(),
+            ],
             'remark' => $participant->getRemark(),
             'events' => array_map($eventController->normalize(...), $survey->getEvents()->toArray()),
             'responses' => $responseMap,
@@ -46,8 +56,11 @@ class SurveyPublicController extends AbstractApiController
             return $this->notFound('Umfrage nicht gefunden');
         }
 
-        if ($participant->getSurvey()->isExpired()) {
-            return $this->json(['error' => 'Die Deadline ist abgelaufen'], 403);
+        if ($participant->getSurvey()->isDraft()) {
+            return $this->json(['error' => 'Diese Umfrage ist noch nicht geöffnet.'], 403);
+        }
+        if ($participant->getSurvey()->isClosed()) {
+            return $this->json(['error' => 'Die Umfrage ist geschlossen.'], 403);
         }
 
         $body = $this->getBody($request);

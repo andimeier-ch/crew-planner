@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { surveyApi, assignmentApi, type MatrixData, type MatrixStaff, type Event } from '../api'
+import { surveyApi, assignmentApi, eventApi, type MatrixData, type MatrixStaff, type Event } from '../api'
 import { formatDateShort as formatDate } from '../utils/date'
+import SurveyStatusBadge from '../components/SurveyStatusBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,10 +48,34 @@ async function toggleAssignment(staff: MatrixStaff, event: Event, skillId: numbe
     if (existing) {
       await assignmentApi.remove(existing.assignmentId)
       staff.assignments = staff.assignments.filter(a => a.assignmentId !== existing.assignmentId)
+      // Mirrors the backend: without any assignment for the event, the staff member no longer leads it.
+      if (event.leaderId === staff.id && cellAssignments(staff, event).length === 0) {
+        event.leaderId = null
+      }
     } else {
       const res = await assignmentApi.create({ staffId: staff.id, eventId: event.id, skillId })
       staff.assignments.push({ eventId: event.id, skillId, assignmentId: res.id })
     }
+  } finally {
+    saving.value = false
+  }
+}
+
+function isEventLeader(staff: MatrixStaff, event: Event): boolean {
+  return event.leaderId === staff.id
+}
+
+/** Only an assigned staff member with the leader flag can lead an event. */
+function canLead(staff: MatrixStaff, event: Event): boolean {
+  return staff.isLeader && cellAssignments(staff, event).length > 0
+}
+
+async function toggleLeader(staff: MatrixStaff, event: Event) {
+  if (saving.value) return
+  saving.value = true
+  try {
+    const updated = await eventApi.setLeader(event.id, isEventLeader(staff, event) ? null : staff.id)
+    event.leaderId = updated.leaderId
   } finally {
     saving.value = false
   }
@@ -78,12 +103,10 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
   <div>
     <div class="flex items-center gap-3 mb-6">
       <button @click="router.back()" class="text-gray-400 hover:text-gray-600 text-sm">← Zurück</button>
-      <h1 class="text-xl font-semibold text-gray-800">Einteilungs-Matrix</h1>
+      <h1 class="text-xl font-semibold text-gray-800">Einteilungs-Matrix<template v-if="matrix">: {{ matrix.survey.title }}</template></h1>
       <span v-if="matrix" class="text-sm text-gray-500 ml-2">
         Deadline: {{ new Date(matrix.survey.deadline).toLocaleString('de-CH') }}
-        <span class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full" :class="matrix.survey.isExpired ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'">
-          {{ matrix.survey.isExpired ? 'Abgelaufen' : 'Aktiv' }}
-        </span>
+        <SurveyStatusBadge class="ml-2" :status="matrix.survey.status" :is-deadline-passed="matrix.survey.isDeadlinePassed" />
       </span>
     </div>
 
@@ -95,6 +118,7 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
         <span class="flex items-center gap-1.5"><span class="w-4 h-4 rounded bg-green-50 border border-green-200 inline-block" /> Verfügbar</span>
         <span class="flex items-center gap-1.5"><span class="w-4 h-4 rounded bg-white border border-gray-200 inline-block" /> Nicht verfügbar</span>
         <span class="ml-2 text-gray-400">Farbige Badges = eingeteilt</span>
+        <span class="text-gray-400"><span class="text-amber-500">★</span> = Leitung</span>
       </div>
 
       <div class="overflow-x-auto rounded-lg border border-gray-200">
@@ -121,7 +145,7 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
               <!-- Sticky staff info cell -->
               <td class="sticky left-0 z-10 bg-white group-hover:bg-gray-50 border-b border-r border-gray-200 px-4 py-2">
                 <div class="font-medium text-gray-800">
-                  {{ staff.name }}
+                  {{ staff.fullName }}
                   <span v-if="staff.isLeader" class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">L</span>
                 </div>
                 <div class="flex flex-wrap gap-1 mt-1">
@@ -146,7 +170,8 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
                   @click.stop="toggleCell(staff, event)"
                 >
                   <!-- Assigned skill badges -->
-                  <div class="flex flex-wrap gap-0.5">
+                  <div class="flex flex-wrap items-center gap-0.5">
+                    <span v-if="isEventLeader(staff, event)" class="text-amber-500 text-sm leading-none" title="Leitung">★</span>
                     <span
                       v-for="a in cellAssignments(staff, event)"
                       :key="a.skillId"
@@ -178,6 +203,15 @@ onUnmounted(() => document.removeEventListener('click', closePopover))
                       {{ skill.name }}
                     </button>
                   </div>
+                  <button
+                    v-if="canLead(staff, event)"
+                    @click="toggleLeader(staff, event)"
+                    class="mt-2 w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded transition-colors text-left border"
+                    :class="isEventLeader(staff, event) ? 'bg-amber-100 border-amber-300 text-amber-800 font-medium' : 'border-gray-200 hover:bg-gray-50 text-gray-700'"
+                  >
+                    <span class="text-amber-500">★</span>
+                    {{ isEventLeader(staff, event) ? 'Leitung' : 'Leitung übernehmen' }}
+                  </button>
                 </div>
               </td>
             </tr>

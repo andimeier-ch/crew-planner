@@ -16,6 +16,11 @@ export interface SkillType {
   color: string
 }
 
+export interface EventName {
+  id: number
+  name: string
+}
+
 export interface Skill {
   id: number
   name: string
@@ -24,7 +29,9 @@ export interface Skill {
 
 export interface Staff {
   id: number
-  name: string
+  firstName: string
+  lastName: string
+  fullName: string
   email: string | null
   isLeader: boolean
   skills: Skill[]
@@ -35,12 +42,20 @@ export interface Event {
   title: string
   date: string
   description: string | null
+  leaderId: number | null
+  // Only set in the survey detail payload
+  responseCount?: number
+  assignmentCount?: number
 }
+
+export type SurveyStatus = 'draft' | 'open' | 'closed'
 
 export interface SurveySummary {
   id: number
+  title: string
   deadline: string
-  isExpired: boolean
+  status: SurveyStatus
+  isDeadlinePassed: boolean
   eventCount: number
   participantCount: number
 }
@@ -49,15 +64,35 @@ export interface SurveyParticipant {
   id: number
   token: string
   remark: string | null
+  responseCount: number
+  assignmentCount: number
+  lastEmailedAt: string | null
+  lastAssignmentSentAt: string | null
+  // Same link as in the e-mails, built by the server from DEFAULT_URI
+  surveyLink: string
   staff: Staff
 }
 
 export interface SurveyDetail {
   id: number
+  title: string
   deadline: string
-  isExpired: boolean
+  status: SurveyStatus
+  isDeadlinePassed: boolean
+  invitationSubject: string
+  invitationBody: string
+  reminderSubject: string
+  reminderBody: string
+  assignmentSubject: string
+  assignmentBody: string
   events: Event[]
   participants: SurveyParticipant[]
+}
+
+export interface MailError {
+  participantId: number
+  name: string
+  error: string
 }
 
 export interface MatrixStaff extends Staff {
@@ -82,6 +117,13 @@ export const skillTypeApi = {
   remove: (id: number) => api.delete(`/skill-types/${id}`),
 }
 
+export const eventNameApi = {
+  list: () => api.get<EventName[]>('/event-names').then(r => r.data),
+  create: (data: { name: string }) => api.post<EventName>('/event-names', data).then(r => r.data),
+  update: (id: number, data: { name: string }) => api.put<EventName>(`/event-names/${id}`, data).then(r => r.data),
+  remove: (id: number) => api.delete(`/event-names/${id}`),
+}
+
 export const skillApi = {
   list: () => api.get<Skill[]>('/skills').then(r => r.data),
   create: (data: { name: string; skillTypeId: number }) => api.post<Skill>('/skills', data).then(r => r.data),
@@ -91,22 +133,33 @@ export const skillApi = {
 
 export const staffApi = {
   list: () => api.get<Staff[]>('/staffs').then(r => r.data),
-  create: (data: { name: string; isLeader: boolean; skillIds: number[] }) => api.post<Staff>('/staffs', data).then(r => r.data),
-  update: (id: number, data: { name?: string; isLeader?: boolean; skillIds?: number[] }) => api.put<Staff>(`/staffs/${id}`, data).then(r => r.data),
+  create: (data: { firstName: string; lastName: string; isLeader: boolean; skillIds: number[] }) => api.post<Staff>('/staffs', data).then(r => r.data),
+  update: (id: number, data: { firstName?: string; lastName?: string; isLeader?: boolean; skillIds?: number[] }) => api.put<Staff>(`/staffs/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/staffs/${id}`),
 }
 
 export const eventApi = {
-  list: () => api.get<Event[]>('/events').then(r => r.data),
-  create: (data: { title: string; date: string; description?: string }) => api.post<Event>('/events', data).then(r => r.data),
+  create: (surveyId: number, data: { title: string; date: string; description?: string | null }) => api.post<Event>(`/surveys/${surveyId}/events`, data).then(r => r.data),
   update: (id: number, data: { title?: string; date?: string; description?: string | null }) => api.put<Event>(`/events/${id}`, data).then(r => r.data),
   remove: (id: number) => api.delete(`/events/${id}`),
+  setLeader: (id: number, staffId: number | null) => api.put<Event>(`/events/${id}/leader`, { staffId }).then(r => r.data),
 }
 
 export const surveyApi = {
   list: () => api.get<SurveySummary[]>('/surveys').then(r => r.data),
   get: (id: number) => api.get<SurveyDetail>(`/surveys/${id}`).then(r => r.data),
-  create: (data: { deadline: string; staffIds: number[]; eventIds: number[] }) => api.post<SurveyDetail>('/surveys', data).then(r => r.data),
+  create: (data: { title: string; deadline: string; staffIds: number[] }) => api.post<SurveyDetail>('/surveys', data).then(r => r.data),
+  update: (id: number, data: { title?: string; deadline?: string; invitationSubject?: string; invitationBody?: string; reminderSubject?: string; reminderBody?: string; assignmentSubject?: string; assignmentBody?: string }) => api.put<SurveyDetail>(`/surveys/${id}`, data).then(r => r.data),
+  addParticipants: (id: number, staffIds: number[]) => api.post<SurveyDetail>(`/surveys/${id}/participants`, { staffIds }).then(r => r.data),
+  removeParticipant: (id: number, participantId: number) => api.delete(`/surveys/${id}/participants/${participantId}`),
+  sendInvitations: (id: number) => api.post<SurveyDetail & { mailErrors: MailError[] }>(`/surveys/${id}/send-invitations`).then(r => r.data),
+  sendInvitation: (id: number, participantId: number) => api.post<SurveyParticipant>(`/surveys/${id}/participants/${participantId}/send-invitation`).then(r => r.data),
+  sendReminders: (id: number) => api.post<SurveyDetail & { sentCount: number; mailErrors: MailError[] }>(`/surveys/${id}/send-reminders`).then(r => r.data),
+  sendReminder: (id: number, participantId: number) => api.post<SurveyParticipant>(`/surveys/${id}/participants/${participantId}/send-reminder`).then(r => r.data),
+  sendAssignments: (id: number) => api.post<SurveyDetail & { sentCount: number; mailErrors: MailError[] }>(`/surveys/${id}/send-assignments`).then(r => r.data),
+  sendAssignment: (id: number, participantId: number) => api.post<SurveyParticipant>(`/surveys/${id}/participants/${participantId}/send-assignment`).then(r => r.data),
+  close: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/close`).then(r => r.data),
+  reopen: (id: number) => api.post<SurveyDetail>(`/surveys/${id}/reopen`).then(r => r.data),
   remove: (id: number) => api.delete(`/surveys/${id}`),
   matrix: (id: number) => api.get<MatrixData>(`/surveys/${id}/matrix`).then(r => r.data),
 }

@@ -17,7 +17,7 @@ class SurveyParticipant
     private ?int $id = null;
 
     #[ORM\ManyToOne(targetEntity: Survey::class, inversedBy: 'participants')]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?Survey $survey = null;
 
     #[ORM\ManyToOne(targetEntity: Staff::class)]
@@ -29,6 +29,12 @@ class SurveyParticipant
 
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $remark = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $lastEmailedAt = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $lastAssignmentSentAt = null;
 
     #[ORM\OneToMany(targetEntity: SurveyResponse::class, mappedBy: 'participant', cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $responses;
@@ -51,6 +57,12 @@ class SurveyParticipant
 
     public function getRemark(): ?string { return $this->remark; }
     public function setRemark(?string $remark): static { $this->remark = $remark; return $this; }
+
+    public function getLastEmailedAt(): ?\DateTimeImmutable { return $this->lastEmailedAt; }
+    public function setLastEmailedAt(?\DateTimeImmutable $at): static { $this->lastEmailedAt = $at; return $this; }
+
+    public function getLastAssignmentSentAt(): ?\DateTimeImmutable { return $this->lastAssignmentSentAt; }
+    public function setLastAssignmentSentAt(?\DateTimeImmutable $at): static { $this->lastAssignmentSentAt = $at; return $this; }
 
     public function getResponses(): Collection { return $this->responses; }
 }

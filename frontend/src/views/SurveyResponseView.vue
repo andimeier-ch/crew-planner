@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { surveyPublicApi } from '../api'
 import { formatDate } from '../utils/date'
@@ -9,8 +9,12 @@ const token = route.params.token as string
 
 const survey = ref<any>(null)
 const loading = ref(true)
-const notFound = ref(false)
+const loadError = ref('')
 const responses = ref<Record<number, boolean>>({})
+
+// Events added after the participant last answered have no saved response yet
+const hasAnswered = computed(() => Object.keys(survey.value?.responses ?? {}).length > 0)
+const isUnanswered = (eventId: number) => hasAnswered.value && !(eventId in survey.value.responses)
 const remark = ref('')
 const saving = ref(false)
 const saved = ref(false)
@@ -25,8 +29,10 @@ async function load() {
     }
     responses.value = loaded
     remark.value = survey.value.remark ?? ''
-  } catch {
-    notFound.value = true
+  } catch (e: any) {
+    loadError.value = e.response?.status === 403
+      ? e.response.data.error
+      : 'Umfrage nicht gefunden oder Link ungültig.'
   } finally {
     loading.value = false
   }
@@ -38,6 +44,7 @@ async function submit() {
   saved.value = false
   try {
     await surveyPublicApi.respond(token, { responses: responses.value, remark: remark.value })
+    survey.value.responses = { ...responses.value }
     saved.value = true
   } catch (e: any) {
     error.value = e.response?.data?.error ?? 'Fehler beim Speichern.'
@@ -54,22 +61,25 @@ onMounted(load)
 <template>
   <div class="min-h-screen bg-gray-50">
     <div class="max-w-2xl mx-auto px-4 py-10">
-      <h1 class="text-2xl font-semibold text-gray-800 mb-2">Verfügbarkeits-Umfrage</h1>
+      <h1 class="text-2xl font-semibold text-gray-800 mb-2">{{ survey?.title || 'Verfügbarkeits-Umfrage' }}</h1>
 
       <div v-if="loading" class="text-gray-400 mt-8">Laden…</div>
 
-      <div v-else-if="notFound" class="mt-8 text-gray-500">
-        Umfrage nicht gefunden oder Link ungültig.
+      <div v-else-if="loadError" class="mt-8 text-gray-500">
+        {{ loadError }}
       </div>
 
       <template v-else-if="survey">
-        <p class="text-sm text-gray-500 mb-1">Hallo <strong>{{ survey.staff.name }}</strong></p>
+        <p class="text-sm text-gray-500 mb-1">Hallo <strong>{{ survey.staff.firstName }}</strong></p>
         <p class="text-sm text-gray-500 mb-6">
           Bitte gib an, an welchen Events du verfügbar bist. Deadline: <strong>{{ formatDeadline(survey.deadline) }}</strong>
         </p>
 
-        <div v-if="survey.isExpired" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 mb-6">
-          Die Deadline ist abgelaufen. Deine Antworten können nicht mehr geändert werden.
+        <div v-if="survey.isClosed" class="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600 mb-6">
+          Die Umfrage ist geschlossen. Deine Antworten können nicht mehr geändert werden.
+        </div>
+        <div v-else-if="survey.isDeadlinePassed" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 mb-6">
+          Die Deadline ist abgelaufen – bitte antworte so bald wie möglich.
         </div>
 
         <form @submit.prevent="submit" class="space-y-6">
@@ -85,7 +95,10 @@ onMounted(load)
               <tbody class="divide-y divide-gray-100">
                 <tr v-for="event in survey.events" :key="event.id" class="hover:bg-gray-50">
                   <td class="px-4 py-3">
-                    <div class="text-gray-800">{{ event.title }}</div>
+                    <div class="text-gray-800">
+                      {{ event.title }}
+                      <span v-if="isUnanswered(event.id)" class="ml-1.5 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">Neu</span>
+                    </div>
                     <div v-if="event.description" class="text-xs text-gray-400 mt-0.5">{{ event.description }}</div>
                   </td>
                   <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ formatDate(event.date) }}</td>
@@ -93,7 +106,7 @@ onMounted(load)
                     <input
                       type="checkbox"
                       v-model="responses[event.id]"
-                      :disabled="survey.isExpired"
+                      :disabled="survey.isClosed"
                       class="w-5 h-5 accent-green-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </td>
@@ -106,14 +119,14 @@ onMounted(load)
             <label class="block text-sm font-medium text-gray-700 mb-1">Bemerkung (optional)</label>
             <textarea
               v-model="remark"
-              :disabled="survey.isExpired"
+              :disabled="survey.isClosed"
               rows="3"
               placeholder="z. B. 'Am 15.03 komme ich etwas später…'"
               class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-400"
             />
           </div>
 
-          <div v-if="!survey.isExpired" class="flex items-center gap-4">
+          <div v-if="!survey.isClosed" class="flex items-center gap-4">
             <button
               type="submit"
               :disabled="saving"

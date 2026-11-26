@@ -28,6 +28,14 @@ class Event
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $description = null;
 
+    #[ORM\ManyToOne(targetEntity: Survey::class, inversedBy: 'events')]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
+    private ?Survey $survey = null;
+
+    #[ORM\ManyToOne(targetEntity: Staff::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Staff $leader = null;
+
     public function getId(): ?int { return $this->id; }
 
     public function getTitle(): string { return $this->title; }
@@ -38,4 +46,10 @@ class Event
 
     public function getDescription(): ?string { return $this->description; }
     public function setDescription(?string $description): static { $this->description = $description; return $this; }
+
+    public function getSurvey(): ?Survey { return $this->survey; }
+    public function setSurvey(?Survey $survey): static { $this->survey = $survey; return $this; }
+
+    public function getLeader(): ?Staff { return $this->leader; }
+    public function setLeader(?Staff $leader): static { $this->leader = $leader; return $this; }
 }

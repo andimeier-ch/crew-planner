@@ -47,6 +47,25 @@ Der Vite Dev Server leitet `/api/*`-Anfragen automatisch an `https://crew-planne
 
 ---
 
+## E-Mail
+
+Einladungen und Erinnerungen werden direkt beim Klick verschickt (kein Hintergrund-Worker).
+
+| Variable | Bedeutung |
+|---|---|
+| `MAILER_DSN` | SMTP-Zugang. Lokal fängt DDEV alle Mails in Mailpit ab (`ddev mailpit`). |
+| `MAILER_FROM` | Absender und Antwortadresse, Default in `.env`. |
+| `DEFAULT_URI` | Öffentliche URL der App, daraus werden die persönlichen Umfrage-Links gebaut. |
+
+Produktion (`.env.local` auf dem Server, nicht im Git):
+```
+MAILER_DSN="smtp://musik%40feg-langenthal.ch:PASSWORT@asmtp.mail.hostpoint.ch:587"
+DEFAULT_URI="https://<öffentliche URL der App>"
+```
+Das `@` im Benutzernamen und Sonderzeichen im Passwort müssen URL-kodiert sein.
+
+---
+
 ## Authentifizierung
 
 Die API verwendet **JWT Bearer Tokens** (RSA-256, gültig 1 Stunde).
@@ -99,6 +118,16 @@ Alle `/api/*`-Routen (ausser Login und Survey) erfordern `Authorization: Bearer 
 | PUT | `/api/skill-types/{id}` | Skill-Typ aktualisieren |
 | DELETE | `/api/skill-types/{id}` | Skill-Typ löschen |
 
+### Event-Namen
+Vordefinierte Event-Titel, die beim Erfassen eines Events als Vorschläge erscheinen.
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| GET | `/api/event-names` | Alle Event-Namen (alphabetisch) |
+| POST | `/api/event-names` | Neuen Event-Namen erstellen |
+| PUT | `/api/event-names/{id}` | Event-Namen aktualisieren |
+| DELETE | `/api/event-names/{id}` | Event-Namen löschen |
+
 ### Skills
 | Methode | Pfad | Beschreibung |
 |---|---|---|
@@ -125,6 +154,7 @@ Alle `/api/*`-Routen (ausser Login und Survey) erfordern `Authorization: Bearer 
 | GET | `/api/events/{id}` | Einzelnes Event |
 | PUT | `/api/events/{id}` | Event aktualisieren |
 | DELETE | `/api/events/{id}` | Event löschen |
+| PUT | `/api/events/{id}/leader` | Leitung setzen (`{"staffId": 1}`) oder entfernen (`{"staffId": null}`); nur eingeteilte Staffs mit Leader-Flag |
 
 ### Umfragen
 | Methode | Pfad | Beschreibung |
@@ -134,6 +164,12 @@ Alle `/api/*`-Routen (ausser Login und Survey) erfordern `Authorization: Bearer 
 | GET | `/api/surveys/{id}` | Umfrage mit Teilnehmern und Tokens |
 | DELETE | `/api/surveys/{id}` | Umfrage löschen |
 | GET | `/api/surveys/{id}/matrix` | Matrix-Daten (Staffs, Events, Verfügbarkeiten, Einteilungen) |
+| POST | `/api/surveys/{id}/send-invitations` | Einladungen an alle senden und Entwurf öffnen |
+| POST | `/api/surveys/{id}/participants/{participantId}/send-invitation` | Einladung an eine Person senden |
+| POST | `/api/surveys/{id}/send-reminders` | Erinnerung an alle ohne Antwort senden |
+| POST | `/api/surveys/{id}/participants/{participantId}/send-reminder` | Erinnerung an eine Person senden |
+| POST | `/api/surveys/{id}/send-assignments` | Einteilung an alle Eingeteilten senden (nur geschlossene Umfragen) |
+| POST | `/api/surveys/{id}/participants/{participantId}/send-assignment` | Einteilung an eine Person senden |
 
 **Umfrage erstellen – Request Body:**
 ```json

@@ -16,7 +16,7 @@ const navLinks = [
   { to: '/skill-types', label: 'Skill-Typen' },
   { to: '/skills', label: 'Skills' },
   { to: '/staffs', label: 'Staffs' },
-  { to: '/events', label: 'Events' },
+  { to: '/event-names', label: 'Event-Namen' },
   { to: '/surveys', label: 'Umfragen' },
 ]
 </script>
